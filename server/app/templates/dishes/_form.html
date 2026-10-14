@@ -32,7 +32,8 @@
   </div>
   <label>Source link
     <input name="source_url" value="{{ form.source_url }}" type="url" {% if errors.source_url %}aria-invalid="true"{% endif %}>
-    {% if errors.duplicate %}<small class="error">Already saved as <a href="/dishes/{{ errors.duplicate.id }}">{{ errors.duplicate.title }}</a></small>{% endif %}
+    {% if errors.duplicate %}<small class="error">Already saved as <a href="/dishes/{{ errors.duplicate.id }}">{{ errors.duplicate.title }}</a></small>
+    {% elif errors.source_url %}<small class="error">{{ errors.source_url }}</small>{% endif %}
   </label>
   <label>Notes
     <textarea name="notes" rows="2">{{ form.notes }}</textarea>

@@ -14,7 +14,7 @@ from app.ingest import images, llm, video, web
 from app.ingest.batch import process_batch
 from app.ingest.urls import normalize_url
 from app.models import Dish, ImportBatch, IngestJob
-from app.tags.service import tag_usage
+from app.tags.service import existing_tag_names
 
 log = logging.getLogger(__name__)
 
@@ -108,10 +108,6 @@ async def run_job(job_id: int) -> None:
 def _set_status(s, job: IngestJob, status: str) -> None:
     job.status = status
     s.commit()
-
-
-def existing_tag_names(s) -> list[str]:
-    return [t.name for t, _count in tag_usage(s)][:500]
 
 
 async def _process(s, job: IngestJob, tmp: Path) -> None:

@@ -131,3 +131,8 @@ def _core_rank(name: str) -> int:
 
 def dinner_tag_names(session: Session) -> list[str]:
     return [t.name for t, c in tag_usage(session, dinners_only=True) if c > 0 or t.name in CORE_TAGS]
+
+
+def existing_tag_names(session: Session) -> list[str]:
+    """Tag names for AI prompts: core first, then most-used; capped at 500."""
+    return [t.name for t, _count in tag_usage(session)][:500]

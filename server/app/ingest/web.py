@@ -5,7 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -65,10 +65,12 @@ def parse_page(markup: str | bytes, url: str) -> PageData:
         recipe["image"] = urljoin(url, recipe["image"])
     og_image = _meta(soup, "og:image")
     canonical = soup.find("link", rel="canonical")
-    canonical_url = (canonical.get("href") if canonical else None) or _meta(soup, "og:url") or url
+    canonical_url = urljoin(url, (canonical.get("href") if canonical else None) or _meta(soup, "og:url") or url)
+    if urlsplit(canonical_url).scheme not in ("http", "https"):
+        canonical_url = url
     return PageData(
         url=url,
-        canonical_url=urljoin(url, canonical_url),
+        canonical_url=canonical_url,
         og_title=_meta(soup, "og:title") or "",
         og_description=_meta(soup, "og:description") or "",
         og_image=urljoin(url, og_image) if og_image else None,

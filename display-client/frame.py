@@ -222,7 +222,12 @@ def run(opts: Options, now: datetime, fetch: Callable, show: Callable) -> int:
     d = decide(now, state, result)
 
     if d.action == "draw":
-        img = Image.open(BytesIO(result.body))
+        try:
+            img = Image.open(BytesIO(result.body))
+            img.load()
+        except (OSError, Image.DecompressionBombError) as e:
+            log.error("frame is not a readable image: %s", e)
+            return 2
         if img.size != SIZE:
             log.error("unexpected frame size %s, expected %s", img.size, SIZE)
             return 2

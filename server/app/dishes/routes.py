@@ -13,12 +13,13 @@ from app.dishes.forms import DishInput, apply, core_tag_warning, similar_dishes,
 from app.dishes.search import search_dishes
 from app.menu.entries import menu_history
 from app.models import DISH_TYPES, Dish
-from app.tags.service import CORE_TAGS, normalize_tag, tag_usage
+from app.tags.service import CORE_TAGS, existing_tag_names, normalize_tag
 from app.web import render
 
 router = APIRouter()
 
 IMAGE_TEMPLATE = "dishes/_image_upload.html"
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 
 def _dish_or_404(session: Session, dish_id: int) -> Dish:
@@ -72,12 +73,15 @@ def _form_page(request, form, errors, action, submit_label, heading, status_code
     }, status_code=status_code)
 
 
-async def _read_image(form) -> bytes | None:
+async def _read_image(form, errors: dict) -> bytes | None:
     upload = form.get("image")
-    if isinstance(upload, UploadFile) and upload.filename:
-        data = await upload.read()
-        return data or None
-    return None
+    if not (isinstance(upload, UploadFile) and upload.filename):
+        return None
+    data = b"" if (upload.size or 0) > MAX_IMAGE_BYTES else await upload.read()
+    if len(data) > MAX_IMAGE_BYTES or (upload.size or 0) > MAX_IMAGE_BYTES:
+        errors["image"] = "Photos must be 10 MB or smaller."
+        return None
+    return data or None
 
 
 def _save_image(data: bytes | None, errors: dict) -> str | None:
@@ -92,40 +96,41 @@ def _save_image(data: bytes | None, errors: dict) -> str | None:
         return None
 
 
-def _existing_tags(session: Session) -> list[str]:
-    return [t.name for t, _ in tag_usage(session)][:500]
+async def _validated_input(form, session: Session, dish_id: int | None = None):
+    """Parses and validates the form, then stores any uploaded photo. Returns (input, errors, image_path)."""
+    inp = DishInput.from_form(form)
+    errors = validate(session, inp, dish_id)
+    image = await _read_image(form, errors)
+    image_path = None if errors else await run_in_threadpool(_save_image, image, errors)
+    return inp, errors, image_path
 
 
-def _create(session: Session, inp: DishInput, image: bytes | None) -> tuple[Dish | None, dict, str]:
-    errors = validate(session, inp)
-    image_path = None if errors else _save_image(image, errors)
-    if errors:
-        return None, errors, ""
-    extra: list[str] = []
-    tag_error = ""
-    if config.anthropic_api_key:
-        try:
-            from app.ingest.llm import suggest_tags
+async def _suggested_tags(session: Session, inp: DishInput) -> tuple[list[str], str]:
+    """AI tags for a new recipe; never blocks saving. Returns (tags, error message)."""
+    if not config.anthropic_api_key:
+        return [], ""
+    from app.ingest.llm import suggest_tags
 
-            extra = suggest_tags(
-                inp.title, inp.type, inp.description, inp.ingredients, _existing_tags(session)
-            )
-        except Exception as e:  # any failure: save anyway and tell the user
-            tag_error = f"Couldn't suggest tags: {e}"
-    dish = Dish(source_platform="manual", image_path=image_path)
-    apply(session, dish, inp, extra_tags=extra)
-    session.commit()
-    return dish, {}, tag_error
+    existing = existing_tag_names(session)
+    try:
+        tags = await run_in_threadpool(
+            suggest_tags, inp.title, inp.type, inp.description, inp.ingredients, existing
+        )
+        return tags, ""
+    except Exception as e:  # any failure: save anyway and tell the user
+        return [], f"Couldn't suggest tags: {e}"
 
 
 @router.post("/dishes")
 async def create_dish(request: Request, session: Session = Depends(get_session)):
     form = await request.form()
-    inp = DishInput.from_form(form)
-    image = await _read_image(form)
-    dish, errors, tag_error = await run_in_threadpool(_create, session, inp, image)
-    if dish is None:
+    inp, errors, image_path = await _validated_input(form, session)
+    if errors:
         return _form_page(request, inp, errors, "/dishes", "Save recipe", "Add a recipe", 422)
+    extra, tag_error = await _suggested_tags(session, inp)
+    dish = Dish(source_platform="manual", image_path=image_path)
+    apply(session, dish, inp, extra_tags=extra)
+    session.commit()
     params = {"created": 1}
     if tag_error:
         params["tag_error"] = tag_error
@@ -160,29 +165,19 @@ def edit_dish(request: Request, dish_id: int, session: Session = Depends(get_ses
     )
 
 
-def _update(session: Session, dish: Dish, inp: DishInput, image: bytes | None) -> dict:
-    errors = validate(session, inp, dish.id)
-    image_path = None if errors else _save_image(image, errors)
-    if errors:
-        return errors
-    if image_path:
-        dish.image_path = image_path
-    apply(session, dish, inp)
-    session.commit()
-    return {}
-
-
 @router.post("/dishes/{dish_id}")
 async def update_dish(request: Request, dish_id: int, session: Session = Depends(get_session)):
     dish = _dish_or_404(session, dish_id)
     form = await request.form()
-    inp = DishInput.from_form(form)
-    image = await _read_image(form)
-    errors = await run_in_threadpool(_update, session, dish, inp, image)
+    inp, errors, image_path = await _validated_input(form, session, dish.id)
     if errors:
         return _form_page(
             request, inp, errors, f"/dishes/{dish.id}", "Save changes", f"Edit {dish.title}", 422
         )
+    if image_path:
+        dish.image_path = image_path
+    apply(session, dish, inp)
+    session.commit()
     return RedirectResponse(f"/dishes/{dish.id}", status_code=303)
 
 

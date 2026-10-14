@@ -2,6 +2,7 @@
 import difflib
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -102,6 +103,9 @@ def validate(session: Session, inp: DishInput, dish_id: int | None = None) -> di
         errors["title"] = "Title is required."
     if inp.type not in DISH_TYPES:
         errors["type"] = "Choose a type."
+    if inp.source_url and urlsplit(inp.source_url).scheme.lower() not in ("http", "https"):
+        errors["source_url"] = "Links must start with http:// or https://."
+        return errors
     dup = duplicate_url_dish(session, inp.source_url, dish_id)
     if dup:
         errors["source_url"] = "Already saved as"

@@ -41,9 +41,14 @@ async def _screenshot() -> bytes:
 
 
 async def get_frame() -> tuple[bytes, str]:
-    """Return (png, etag), re-rendering at most once a minute."""
+    """Return (png, etag), re-rendering at most once a minute.
+
+    While a transcription holds the heavy lock, a cached frame is served as-is
+    rather than making the e-ink client wait behind it.
+    """
     async with _lock:
-        if _cache["png"] is None or time.monotonic() - _cache["rendered_at"] > MAX_AGE_S:
+        stale = _cache["png"] is None or time.monotonic() - _cache["rendered_at"] > MAX_AGE_S
+        if stale and not (_cache["png"] is not None and heavy_lock.locked()):
             png = to_one_bit(await _screenshot())
             _cache.update(png=png, etag=etag_for(png), rendered_at=time.monotonic())
         return _cache["png"], _cache["etag"]

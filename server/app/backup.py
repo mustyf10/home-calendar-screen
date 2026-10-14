@@ -53,7 +53,7 @@ def _mirror_media() -> None:
 def _prune(today: date) -> None:
     cutoff = today - timedelta(days=KEEP_DAYS)
     for d in config.backup_dir.iterdir():
-        if d.is_dir() and _DATED.fullmatch(d.name) and date.fromisoformat(d.name) < cutoff:
+        if d.is_dir() and _DATED.fullmatch(d.name) and date.fromisoformat(d.name) <= cutoff:
             shutil.rmtree(d)
 
 

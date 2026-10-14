@@ -8,6 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from PIL import Image
 from starlette.datastructures import UploadFile
 
 from app.config import config
@@ -203,7 +204,7 @@ async def create_batch(request: Request, session: Session = Depends(get_session)
             if len(data) > MAX_BATCH_BYTES:
                 raise ValueError
             paths.append(await run_in_threadpool(images.save_page_image, data, f"{batch_dir}/page-{n:02d}.jpg"))
-    except Exception:
+    except (ValueError, Image.UnidentifiedImageError, Image.DecompressionBombError):
         session.rollback()
         shutil.rmtree(config.media_dir / batch_dir, ignore_errors=True)
         return fail(f"{f.filename} is too large or not an image.")
