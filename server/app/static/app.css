@@ -1,0 +1,30 @@
+/* Phone-first tweaks on top of Pico. */
+:root { --pico-font-size: 100%; }
+nav { flex-wrap: wrap; }
+.nav-links { flex-wrap: wrap; gap: 0; }
+.nav-links li { padding: 0.4rem 0.5rem; }
+.badge { display: inline-block; min-width: 1.4em; padding: 0 0.4em; border-radius: 1em;
+  background: var(--pico-primary); color: var(--pico-primary-inverse); font-size: 0.75em; text-align: center; }
+.flash { padding: 0.6rem 0.8rem; border-left: 4px solid var(--pico-primary); background: var(--pico-card-background-color); }
+.warn { padding: 0.6rem 0.8rem; border-left: 4px solid #d97706; background: var(--pico-card-background-color); }
+.error { color: var(--pico-del-color); }
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.3rem 0; padding: 0; list-style: none; }
+.chip { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 1rem; font-size: 0.85em;
+  border: 1px solid var(--pico-muted-border-color); text-decoration: none; }
+.chip.core { font-weight: 600; }
+.type-badge { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--pico-muted-color); }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
+.card { margin: 0; }
+.card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: var(--pico-border-radius); }
+.muted { color: var(--pico-muted-color); font-size: 0.9em; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.thumbs img { width: 6rem; height: 6rem; object-fit: cover; border-radius: var(--pico-border-radius); }
+.row-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.row-actions button, .row-actions a[role=button] { width: auto; margin: 0; padding: 0.35rem 0.7rem; font-size: 0.9em; }
+.menu-row { padding: 0.8rem 0; border-bottom: 1px solid var(--pico-muted-border-color); }
+.menu-row.today { border-left: 4px solid var(--pico-primary); padding-left: 0.6rem; }
+.menu-row .label { font-weight: 700; }
+.blocked { opacity: 0.5; }
+.tag-toggle { display: inline-flex; align-items: center; gap: 0.2rem; margin-right: 0.6rem; }
+.tag-toggle input { margin: 0; }
+pre.plain { white-space: pre-wrap; }
