@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Import · Kitchen{% endblock %}
+{% block content %}
+<h1>Import recipes</h1>
+<div class="row-actions">
+  <a role="button" href="/imports/new">Import a link / text / photos</a>
+  <a role="button" class="secondary" href="/imports/batch">Import handwritten recipes</a>
+</div>
+
+{% if batches %}
+<h2>Handwritten batches</h2>
+{% for b in batches %}
+<article>
+  <a href="/imports/batches/{{ b.id }}"><strong>Paper batch #{{ b.id }}</strong></a>
+  <span class="muted">· {{ b.page_paths | length }} page{{ '' if b.page_paths | length == 1 else 's' }} · {{ status_text.get(b.status, b.status) }}</span>
+  {% if b.status == "failed" %}<br><small class="error">{{ b.error }}</small>{% endif %}
+</article>
+{% endfor %}
+{% endif %}
+
+<h2>Drafts to review</h2>
+{% if drafts %}
+{% for j in drafts %}
+<article>
+  <strong>{{ (j.extracted or {}).get("title") or "Untitled" }}</strong>
+  <span class="muted">· {{ source_label(j) }}</span>
+  <div class="row-actions">
+    <a role="button" href="/imports/{{ j.id }}">Review</a>
+    <form method="post" action="/imports/{{ j.id }}/discard">
+      <button type="submit" class="secondary outline">Discard</button>
+    </form>
+  </div>
+</article>
+{% endfor %}
+{% else %}
+<p class="muted">No drafts waiting.</p>
+{% endif %}
+
+{% if in_progress %}
+<h2>In progress</h2>
+{% for j in in_progress %}
+<p><a href="/imports/{{ j.id }}">{{ source_label(j) }}</a> <span class="muted">· {{ status_text.get(j.status, j.status) }}</span></p>
+{% endfor %}
+{% endif %}
+
+{% if failed %}
+<h2>Failed</h2>
+{% for j in failed %}
+<article>
+  <a href="/imports/{{ j.id }}"><strong>{{ source_label(j) }}</strong></a>
+  <br><small class="error">{{ j.error }}</small>
+  <div class="row-actions">
+    <a role="button" class="secondary" href="/imports/{{ j.id }}">Retry…</a>
+    <form method="post" action="/imports/{{ j.id }}/discard">
+      <button type="submit" class="secondary outline">Discard</button>
+    </form>
+  </div>
+</article>
+{% endfor %}
+{% endif %}
+{% endblock %}

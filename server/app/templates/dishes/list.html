@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "dishes/_macros.html" import chips with context %}
+{% block title %}Recipes · Kitchen{% endblock %}
+{% block content %}
+<hgroup>
+  <h1>{% if archived %}Archived recipes{% else %}Recipes{% endif %}</h1>
+  <p class="row-actions">
+    <a href="/dishes/new" role="button">Add recipe</a>
+    {% if archived %}<a href="/dishes" role="button" class="secondary outline">Back to recipes</a>
+    {% else %}<a href="/dishes?archived=1" role="button" class="secondary outline">Archived</a>{% endif %}
+  </p>
+</hgroup>
+
+<form method="get" action="/dishes" role="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search title, ingredients, #tags…">
+  <select name="type" aria-label="Type" onchange="this.form.submit()">
+    <option value="" {% if not type %}selected{% endif %}>All</option>
+    {% for key, label in TYPE_LABELS.items() %}
+    <option value="{{ key }}" {% if type == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
+  {% if archived %}<input type="hidden" name="archived" value="1">{% endif %}
+  <button type="submit">Search</button>
+</form>
+{% if tag %}
+<p><a class="chip core" href="{{ clear_tag_url }}">#{{ tag }} ✕</a></p>
+{% endif %}
+
+{% if not dishes %}
+<p class="muted">No recipes found.</p>
+{% endif %}
+<div class="cards">
+  {% for d in dishes %}
+  <article class="card">
+    {% if d.image_path %}<a href="/dishes/{{ d.id }}"><img src="/media/{{ d.image_path }}" alt="" loading="lazy"></a>{% endif %}
+    <span class="type-badge">{{ TYPE_LABELS[d.type] }}</span>
+    <h3><a href="/dishes/{{ d.id }}">{{ d.title }}</a></h3>
+    {{ chips(d.tag_names) }}
+    {% if d.type == "dinner" %}{% set h = history[d.id] %}
+    <p class="muted">
+      Last on menu: {{ h.last_on_menu | day if h.last_on_menu else "Never" }}<br>
+      Can be rolled from: {{ h.rollable_from | day if h.rollable_from else "now" }}
+    </p>
+    {% endif %}
+    {% if archived %}
+    <form method="post" action="/dishes/{{ d.id }}/restore"><button type="submit" class="secondary">Restore</button></form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

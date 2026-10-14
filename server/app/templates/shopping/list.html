@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Shopping · Kitchen{% endblock %}
+{% block content %}
+<hgroup>
+  <h1>Shopping list</h1>
+  <p>{{ range_text }}</p>
+</hgroup>
+<nav class="row-actions">
+  <a href="/shopping?week={{ prev_week.isoformat() }}" role="button" class="secondary outline">← Previous</a>
+  <a href="/shopping?week={{ next_week.isoformat() }}" role="button" class="secondary outline">Next →</a>
+  <a href="/menu?week={{ start.isoformat() }}" role="button" class="secondary outline">Menu</a>
+</nav>
+
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+{% if dinners %}
+<p class="muted">Dinners: {% for d, dish in dinners %}{{ d | day }} {{ dish.title }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% else %}
+<p class="muted">No dinners on the menu for this week yet.</p>
+{% endif %}
+
+{% set build_action = "/shopping/build?week=" ~ start.isoformat() %}
+{% if saved and out_of_date %}
+<form method="post" action="{{ build_action }}" class="warn">
+  Out of date — the menu or pantry changed since this list was built.
+  <button type="submit">Rebuild</button>
+</form>
+{% elif not saved %}
+<form method="post" action="{{ build_action }}">
+  <button type="submit" {% if not dinners %}disabled{% endif %}>Build list</button>
+</form>
+{% endif %}
+
+{% if saved %}
+{% set data = saved.data %}
+{% for aisle in data.aisles %}
+<h3>{{ aisle.name }}</h3>
+<ul>
+  {% for it in aisle["items"] %}
+  <li>{{ it.item }}{% if it.quantity %} <strong>{{ it.quantity }}</strong>{% endif %}
+    {% if it["for"] %}<small class="muted">· {{ it["for"] | join(", ") }}</small>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endfor %}
+{% if data.check_you_have %}
+<h3>Check you have</h3>
+<ul>{% for x in data.check_you_have %}<li>{{ x }}</li>{% endfor %}</ul>
+{% endif %}
+{% if data.no_ingredients %}
+<h3>No ingredients saved</h3>
+<ul>{% for t in data.no_ingredients %}<li>{{ t }}</li>{% endfor %}</ul>
+{% endif %}
+{% if not data.aisles and not data.check_you_have and not data.no_ingredients %}
+<p class="muted">Nothing to buy.</p>
+{% endif %}
+
+<pre id="shopping-text" hidden>{{ text }}</pre>
+<div class="row-actions">
+  <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('shopping-text').textContent).then(() => { this.textContent = 'Copied'; }, () => { this.textContent = 'Copy failed'; })">Copy</button>
+  {% if not out_of_date %}
+  <form method="post" action="{{ build_action }}"><button type="submit" class="secondary outline">Rebuild</button></form>
+  {% endif %}
+</div>
+<p class="muted">Built {{ built_at.strftime("%a %-d %b %H:%M") }}</p>
+{% endif %}
+{% endblock %}

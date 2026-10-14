@@ -1,0 +1,25 @@
+<div id="batch-body"{% if polling %} hx-get="/imports/batches/{{ batch.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+{% if batch.status in ("queued", "grouping") %}
+  <p aria-busy="true">{{ status_text[batch.status] }}</p>
+  <div class="thumbs">{% for p in batch.page_paths %}<img src="/media/{{ p }}" alt="Page {{ loop.index }}" loading="lazy">{% endfor %}</div>
+{% elif batch.status == "failed" %}
+  <p class="error">{{ batch.error }}</p>
+  <form method="post" action="/imports/batches/{{ batch.id }}/retry"><button type="submit">Retry</button></form>
+{% else %}
+  {% if next_draft %}<p><a role="button" href="/imports/{{ next_draft.id }}">Review next draft</a></p>{% endif %}
+  <h2>Recipes ({{ jobs | length }})</h2>
+  {% for j in jobs %}
+  <article>
+    <a href="/imports/{{ j.id }}"><strong>{{ (j.extracted or {}).get("title") or "Recipe " ~ loop.index }}</strong></a>
+    <span class="muted">· {% if j.dish_id %}Saved{% else %}<span{% if polling and j.status in ("queued", "fetching", "transcribing", "extracting") %} aria-busy="true"{% endif %}>{{ status_text.get(j.status, j.status) }}</span>{% endif %}</span>
+    {% if j.status == "failed" %}<br><small class="error">{{ j.error }}</small>{% endif %}
+    <div class="thumbs">{% for p in j.upload_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="" loading="lazy"></a>{% endfor %}</div>
+  </article>
+  {% endfor %}
+  {% if batch.unreadable_pages %}
+  <h3>Unreadable pages</h3>
+  <p class="muted">No recipe could be read on these pages.</p>
+  <div class="thumbs">{% for n in batch.unreadable_pages %}<a href="/media/{{ batch.page_paths[n - 1] }}" target="_blank"><img src="/media/{{ batch.page_paths[n - 1] }}" alt="Page {{ n }}" loading="lazy"></a>{% endfor %}</div>
+  {% endif %}
+{% endif %}
+</div>

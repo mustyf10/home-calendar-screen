@@ -1,0 +1,5 @@
+{% set active = job.status in ("queued", "fetching", "transcribing", "extracting") %}
+<article id="job-status"{% if active %} hx-get="/imports/{{ job.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p{% if active %} aria-busy="true"{% endif %}>{{ status_text.get(job.status, job.status) }}</p>
+  {% if active %}<small class="muted">Videos can take a minute or two. You can leave this page; the draft will wait in <a href="/imports">Import</a>.</small>{% endif %}
+</article>

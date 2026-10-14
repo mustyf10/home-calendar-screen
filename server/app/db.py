@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 
 from sqlalchemy import create_engine, event
@@ -8,7 +9,11 @@ from app.config import config
 
 
 def make_engine(url: str) -> Engine:
-    engine = create_engine(url, connect_args={"check_same_thread": False})
+    engine = create_engine(
+        url,
+        connect_args={"check_same_thread": False},
+        json_serializer=lambda o: json.dumps(o, ensure_ascii=False),
+    )
 
     @event.listens_for(engine, "connect")
     def _pragmas(dbapi_conn, _):

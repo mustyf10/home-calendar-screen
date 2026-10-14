@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Import · Kitchen{% endblock %}
+{% block content %}
+<h1>Import a recipe</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if duplicate %}<p class="error">Already saved as <a href="/dishes/{{ duplicate.id }}">{{ duplicate.title }}</a></p>{% endif %}
+<form method="post" action="/imports" enctype="multipart/form-data">
+  <label>Link
+    <input name="url" type="url" value="{{ url }}" placeholder="Instagram, TikTok, YouTube or a recipe page">
+  </label>
+  <label>Caption / recipe text
+    <textarea name="text" rows="6" placeholder="Paste the caption or the recipe if the link won't load">{{ text }}</textarea>
+  </label>
+  <label>Photos or screenshots <small>(up to 10, 10 MB each)</small>
+    <input name="images" type="file" accept="image/*" multiple>
+  </label>
+  <button type="submit">Import</button>
+</form>
+<p><a href="/imports/batch">Importing a stack of handwritten recipes?</a></p>
+{% endblock %}

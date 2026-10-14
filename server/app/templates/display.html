@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Display</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 800px; height: 480px; overflow: hidden; background: #fff; color: #000; }
+  body { font-family: "DejaVu Sans", sans-serif; display: flex; position: relative; }
+  .left { width: 280px; padding: 14px 14px 0 16px; }
+  .weekday { font-size: 28px; font-weight: bold; text-transform: uppercase; line-height: 34px; }
+  .daynum { font-size: 96px; font-weight: bold; line-height: 100px; }
+  .monthyear { font-size: 24px; line-height: 30px; margin-bottom: 10px; }
+  table.grid { border-collapse: collapse; width: 100%; font-size: 16px; table-layout: fixed; }
+  .grid th { font-weight: bold; height: 22px; text-align: center; }
+  .grid td { height: 28px; text-align: center; vertical-align: top; padding-top: 3px; position: relative; }
+  .grid td.today { background: #000; color: #fff; }
+  .grid td.events { font-weight: bold; }
+  .grid td.events::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 4px; height: 4px;
+    margin-left: -2px; background: currentColor; border-radius: 2px; }
+  .rule { width: 2px; background: #000; margin: 12px 0; }
+  .right { width: 518px; padding: 6px 14px 0 14px; }
+  h2 { font-size: 16px; font-weight: bold; text-transform: uppercase; line-height: 20px; margin-bottom: 2px; }
+  .agenda { height: 250px; overflow: hidden; }
+  .line { display: flex; font-size: 18px; line-height: 20.5px; white-space: nowrap; }
+  .line.heading, .line.note { font-weight: bold; }
+  .line .time { width: 70px; flex: none; }
+  .line .title, .row .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .line.more { font-style: italic; }
+  .dinners { margin-top: 4px; }
+  .row { display: flex; height: 26px; line-height: 26px; font-size: 18px; white-space: nowrap; padding: 0 4px; }
+  .row .label { width: 80px; flex: none; font-weight: bold; }
+  .row.today { background: #000; color: #fff; }
+  .row .takeaway { font-style: italic; }
+  .warning { position: absolute; right: 8px; bottom: 0; padding-left: 6px; background: #fff;
+    font-size: 14px; line-height: 16px; font-style: italic; }
+</style>
+</head>
+<body>
+  <section class="left">
+    <div class="weekday">{{ m.header.weekday }}</div>
+    <div class="daynum">{{ m.header.day }}</div>
+    <div class="monthyear">{{ m.header.month_year }}</div>
+    <table class="grid">
+      <tr>{% for d in "MTWTFSS" %}<th>{{ d }}</th>{% endfor %}</tr>
+      {% for week in m.month_grid %}
+      <tr>
+        {% for c in week %}
+        {% if c.in_month %}
+        <td class="{% if c.is_today %}today{% endif %} {% if c.has_events %}events{% endif %}">{{ c.day }}</td>
+        {% else %}<td></td>{% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+  <div class="rule"></div>
+  <section class="right">
+    <div class="agenda">
+      <h2>Agenda</h2>
+      {% for line in m.agenda %}
+      {% if line.kind == "event" %}
+      <div class="line event"><span class="time">{{ line.time_text }}</span><span class="title">{{ line.text }}</span></div>
+      {% else %}
+      <div class="line {{ line.kind }}"><span class="title">{{ line.text }}</span></div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <div class="dinners">
+      <h2>Dinners · {{ m.dinners.range_text }}</h2>
+      {% for r in m.dinners.rows %}
+      <div class="row{% if r.is_today %} today{% endif %}">
+        <span class="label">{{ r.label }}</span>
+        {% if r.title == "Takeaway" %}<span class="title takeaway">Takeaway</span>
+        {% elif r.title %}<span class="title">{{ r.title }}</span>
+        {% else %}<span class="title">—</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% if m.warning %}<div class="warning">{{ m.warning }}</div>{% endif %}
+</body>
+</html>

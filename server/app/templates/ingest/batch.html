@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Paper batch #{{ batch.id }} · Kitchen{% endblock %}
+{% block content %}
+<h1>Paper batch #{{ batch.id }}</h1>
+<p class="muted">{{ batch.page_paths | length }} page{{ '' if batch.page_paths | length == 1 else 's' }} · <a href="/imports">All imports</a></p>
+{% include "ingest/_batch_body.html" %}
+{% endblock %}

@@ -1,0 +1,4 @@
+{# Import "with context": uses core_tags from the page context. #}
+{% macro chips(names) -%}
+{% if names %}<ul class="chips">{% for n in names %}<li><a class="chip{% if n in core_tags %} core{% endif %}" href="/dishes?tag={{ n | urlencode }}">#{{ n }}</a></li>{% endfor %}</ul>{% endif %}
+{%- endmacro %}

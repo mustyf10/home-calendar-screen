@@ -1,0 +1,77 @@
+{% from "dishes/_macros.html" import chips with context %}
+{% set iso = r.d.isoformat() %}
+{% set row_id = "row-" ~ iso %}
+<div class="menu-row{% if r.is_today %} today{% endif %}" id="{{ row_id }}">
+  <div class="label">{{ r.d | day }}{% if r.is_today %} · Today{% endif %}</div>
+  <div>
+    {% if r.entry.kind == "dish" %}
+    <a href="/dishes/{{ r.entry.dish.id }}">{{ r.entry.dish.title }}</a>
+    {% if r.entry.dish.type != "dinner" %}<span class="type-badge">{{ TYPE_LABELS[r.entry.dish.type] }}</span>{% endif %}
+    {{ chips(r.entry.dish.tag_names) }}
+    {% elif r.entry.kind == "takeaway" %}<em>Takeaway</em>
+    {% else %}<span class="muted">—</span>{% endif %}
+  </div>
+  {% if r.warning %}<p class="warn">{{ r.warning }}</p>{% endif %}
+  {% if r.message %}<p class="warn">{{ r.message }}</p>{% endif %}
+
+  {% if r.state == "suggest" %}
+  {% set s = r.suggestion %}
+  <article>
+    {% if s.image_path %}<div class="thumbs"><img src="/media/{{ s.image_path }}" alt=""></div>{% endif %}
+    <strong><a href="/dishes/{{ s.id }}" target="_blank">{{ s.title }}</a></strong>
+    {{ chips(s.tag_names) }}
+    <div class="row-actions">
+      <button type="button" hx-post="/menu/{{ iso }}" hx-vals='{"dish_id": "{{ s.id }}"}'
+        hx-target="#{{ row_id }}" hx-swap="outerHTML">Accept</button>
+      <form hx-post="/menu/{{ iso }}/roll" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+        {% for t in r.tags %}<input type="hidden" name="tags" value="{{ t }}">{% endfor %}
+        <input type="hidden" name="exclude" value="{{ r.next_exclude }}">
+        <button type="submit" class="secondary">Re-roll</button>
+      </form>
+      <button type="button" class="secondary outline" hx-get="/menu/{{ iso }}/row"
+        hx-target="#{{ row_id }}" hx-swap="outerHTML">Cancel</button>
+    </div>
+  </article>
+
+  {% elif r.state == "pick" %}
+  {% set list_id = "pick-" ~ iso %}
+  <input type="search" name="q" value="{{ r.q }}" placeholder="Search all recipes…" autofocus
+    hx-get="/menu/{{ iso }}/pick" hx-trigger="input changed delay:300ms, search"
+    hx-target="#{{ list_id }}" hx-select="#{{ list_id }}" hx-swap="outerHTML">
+  <ul id="{{ list_id }}">
+    {% for x in r.results %}
+    {% set blocked = x.id in r.blocked %}
+    <li{% if blocked %} class="blocked"{% endif %}>
+      <a href="#" hx-post="/menu/{{ iso }}" hx-vals='{"dish_id": "{{ x.id }}"}'
+        hx-target="#{{ row_id }}" hx-swap="outerHTML">{{ x.title }}</a>
+      <span class="type-badge">{{ TYPE_LABELS[x.type] }}</span>
+      {% if blocked %}<small class="muted">on menu within 21 days</small>{% endif %}
+    </li>
+    {% else %}
+    <li class="muted">No recipes found.</li>
+    {% endfor %}
+  </ul>
+  <div class="row-actions">
+    <button type="button" class="secondary outline" hx-get="/menu/{{ iso }}/row"
+      hx-target="#{{ row_id }}" hx-swap="outerHTML">Cancel</button>
+  </div>
+
+  {% else %}
+  <form hx-post="/menu/{{ iso }}/roll" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+    <div>
+      {% for t in core_tags %}
+      <label class="tag-toggle"><input type="checkbox" name="tags" value="{{ t }}"{% if t in r.picked_tags %} checked{% endif %}>#{{ t }}</label>
+      {% endfor %}
+    </div>
+    <input name="more_tags" list="dinner-tags" value="{{ r.more_tags }}" placeholder="More tags, e.g. #rice" aria-label="More tags">
+    <input type="hidden" name="exclude" value="">
+    <small class="muted">Any of the picked tags · none = any dinner</small>
+    <div class="row-actions">
+      <button type="submit">🎲 Roll</button>
+      <button type="button" class="secondary" hx-get="/menu/{{ iso }}/pick">Choose…</button>
+      <button type="button" class="secondary outline" hx-post="/menu/{{ iso }}/takeaway">Takeaway</button>
+      <button type="button" class="secondary outline" hx-post="/menu/{{ iso }}/clear">Clear</button>
+    </div>
+  </form>
+  {% endif %}
+</div>

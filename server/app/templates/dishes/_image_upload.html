@@ -1,0 +1,5 @@
+<label>Photo
+  <input type="file" name="image" accept="image/*" {% if errors.image %}aria-invalid="true"{% endif %}>
+  {% if errors.image %}<small class="error">{{ errors.image }}</small>{% endif %}
+  {% if action != "/dishes" %}<small>Leave empty to keep the current photo.</small>{% endif %}
+</label>

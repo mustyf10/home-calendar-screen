@@ -1,0 +1,16 @@
+<fieldset>
+  <legend>Photo</legend>
+  <label><input type="radio" name="image" value=""{% if not image_choice %} checked{% endif %}> No photo</label>
+  <div class="thumbs">
+    {% for c in candidates %}
+    <label><input type="radio" name="image" value="{{ c }}"{% if c == image_choice %} checked{% endif %}> <img src="/media/{{ c }}" alt="Photo option {{ loop.index }}" loading="lazy"></label>
+    {% endfor %}
+  </div>
+</fieldset>
+{% if job.platform == "paper" %}
+<fieldset>
+  <legend>Source pages</legend>
+  <p class="muted">These scans will be kept with the recipe</p>
+  <div class="thumbs">{% for p in job.upload_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="Page {{ loop.index }}" loading="lazy"></a>{% endfor %}</div>
+</fieldset>
+{% endif %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Menu · Kitchen{% endblock %}
+{% block content %}
+<hgroup>
+  <h1>Dinners</h1>
+  <p>{{ range_text }}</p>
+</hgroup>
+<nav class="row-actions">
+  <a href="/menu?week={{ prev_week.isoformat() }}" role="button" class="secondary outline">← Previous</a>
+  {% if start != this_week %}<a href="/menu" role="button" class="secondary outline">This week</a>{% endif %}
+  <a href="/menu?week={{ next_week.isoformat() }}" role="button" class="secondary outline">Next →</a>
+  <a href="/shopping?week={{ start.isoformat() }}" role="button" class="secondary">Shopping list</a>
+</nav>
+<datalist id="dinner-tags">
+  {% for t in datalist %}<option value="#{{ t }}">{% endfor %}
+</datalist>
+{% for r in rows %}
+{% include "menu/_row.html" %}
+{% endfor %}
+{% endblock %}

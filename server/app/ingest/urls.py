@@ -25,7 +25,8 @@ def normalize_url(url: str) -> str:
         if v:
             query = urlencode({"v": v[0]})
     path = parts.path.rstrip("/")
-    return urlunsplit((parts.scheme.lower(), netloc, path, query, ""))
+    scheme = "https" if parts.scheme.lower() in ("http", "https") else parts.scheme.lower()
+    return urlunsplit((scheme, netloc, path, query, ""))
 
 
 def platform_for(url: str) -> str:

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Settings · Kitchen{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<section>
+  <h2>Calendars</h2>
+  <p class="muted">{{ help }}</p>
+  {% if calendars %}
+  <div class="overflow-auto">
+  <table>
+    <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for row in calendars %}
+      <tr>
+        <td>{{ row.cal.name }}</td>
+        <td class="muted">{{ row.masked }}</td>
+        <td>
+          {% if row.cal.last_error %}
+          <span class="error">{{ row.cal.last_error }}</span>
+          <br><small class="muted">since {{ row.error_since }}</small>
+          {% elif row.last_ok %}
+          <small>Synced {{ row.last_ok }}</small>
+          {% else %}<small class="muted">Not synced yet</small>{% endif %}
+        </td>
+        <td>
+          <form method="post" action="/settings/calendars/{{ row.cal.id }}/delete"
+                hx-confirm="Remove calendar '{{ row.cal.name }}'?" hx-boost="true">
+            <button type="submit" class="secondary outline">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <form method="post" action="/settings/sync">
+    <button type="submit" class="secondary">Sync now</button>
+  </form>
+  {% else %}
+  <p>No calendars yet.</p>
+  {% endif %}
+
+  <h3>Add a calendar</h3>
+  <form method="post" action="/settings/calendars">
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <label>Name <small class="muted">(only shown here)</small>
+      <input name="name" value="{{ form.name }}" required>
+    </label>
+    <label>Secret iCal URL
+      <input name="url" value="{{ form.url }}" inputmode="url" required
+             placeholder="https://calendar.google.com/calendar/ical/…"
+             {% if error %}aria-invalid="true"{% endif %}>
+    </label>
+    <button type="submit">Add calendar</button>
+  </form>
+
+  <p>Preview: <a href="/display">/display</a> · <a href="/display/frame.png">/display/frame.png</a></p>
+</section>
+
+<section>
+  <h2>Pantry staples</h2>
+  <p class="muted">One per line. Shopping lists move these to "Check you have" instead of buying them.</p>
+  <form method="post" action="/settings/pantry">
+    <textarea name="pantry" rows="10">{{ pantry }}</textarea>
+    <button type="submit">Save pantry</button>
+  </form>
+</section>
+
+<section>
+  <h2>Backup</h2>
+  <p>Last successful backup: {{ backup_last_ok or "never" }}</p>
+  {% if backup_last_error %}<p class="error">Last error: {{ backup_last_error }}</p>{% endif %}
+  <form method="post" action="/settings/backup">
+    <button type="submit" class="secondary">Back up now</button>
+  </form>
+</section>
+{% endblock %}

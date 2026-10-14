@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Handwritten recipes · Kitchen{% endblock %}
+{% block content %}
+<h1>Import handwritten recipes</h1>
+<p class="muted">Photograph each page in order. A page can hold several recipes, and a recipe can run over several pages — they'll be sorted out for you, and each recipe becomes a draft to review. The photos are kept with the saved recipes.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/imports/batch" enctype="multipart/form-data">
+  <label>Page photos <small>(up to 40, 15 MB each)</small>
+    <input name="images" type="file" accept="image/*" multiple required>
+  </label>
+  <button type="submit">Upload</button>
+</form>
+{% endblock %}

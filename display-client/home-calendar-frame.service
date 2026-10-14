@@ -1,0 +1,11 @@
+[Unit]
+Description=Update the kitchen e-ink frame
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=__FRAME_USER__
+EnvironmentFile=/etc/home-calendar-frame/frame.env
+WorkingDirectory=/opt/home-calendar-frame
+ExecStart=/usr/bin/python3 /opt/home-calendar-frame/frame.py
