@@ -144,7 +144,8 @@ def build_list(session: Session, start: date, *, only_if_stale: bool = False) ->
     with _build_lock:
         if not config.anthropic_api_key:
             raise ShoppingError(NO_KEY_MESSAGE)
-        row = session.get(ShoppingList, start, populate_existing=True)
+        session.expire_all()  # menu/dishes may have changed while waiting for the lock
+        row = session.get(ShoppingList, start)
         menu_fp = menu_fingerprint(session, start)
         if only_if_stale and row is not None and row.menu_fingerprint == menu_fp:
             return row
