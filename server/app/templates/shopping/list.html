@@ -11,7 +11,7 @@
   <a href="/menu?week={{ start.isoformat() }}" role="button" class="secondary outline">Menu</a>
 </nav>
 
-<div id="shopping-body"{% if state == "updating" %} hx-get="/shopping?week={{ start.isoformat() }}" hx-trigger="every 10s" hx-select="#shopping-body" hx-swap="outerHTML"{% endif %}>
+<div id="shopping-body"{% if state in ("updating", "failed") %} hx-get="/shopping?week={{ start.isoformat() }}" hx-trigger="every 10s" hx-select="#shopping-body" hx-swap="outerHTML"{% endif %}>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if dinners %}

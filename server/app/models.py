@@ -186,3 +186,9 @@ class ShoppingList(Base):
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_error: Mapped[str | None] = mapped_column(Text)
     previous_data: Mapped[dict | None] = mapped_column(JSON)
+
+    def clear_pending(self) -> None:
+        self.pending_fingerprint = None
+        self.pending_since = None
+        self.failed_attempts = 0
+        self.last_error = None

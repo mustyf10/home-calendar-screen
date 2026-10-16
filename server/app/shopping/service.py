@@ -138,10 +138,18 @@ def _order_aisles(raw_aisles: list) -> list[dict]:
     return [{"name": n, "items": items} for n, items in merged.items() if items]
 
 
-def build_list(session: Session, start: date) -> ShoppingList:
+def build_list(session: Session, start: date, *, only_if_stale: bool = False) -> ShoppingList:
+    """Build and save the week's list. only_if_stale skips the Claude call when the saved
+    list already matches the menu (e.g. a manual rebuild finished while the caller waited)."""
     with _build_lock:
         if not config.anthropic_api_key:
             raise ShoppingError(NO_KEY_MESSAGE)
+        row = session.get(ShoppingList, start, populate_existing=True)
+        menu_fp = menu_fingerprint(session, start)
+        if only_if_stale and row is not None and row.menu_fingerprint == menu_fp:
+            return row
+        # Fingerprints describe the state sent to Claude, so edits made during the call keep the list stale.
+        full_fp = fingerprint(session, start)
         unique = list(dict.fromkeys(dish for _, dish in week_dinners(session, start)))
         with_ingredients = [d for d in unique if d.ingredients]
         pantry = pantry_text(session)
@@ -155,20 +163,16 @@ def build_list(session: Session, start: date) -> ShoppingList:
             result = _call_claude(with_ingredients, pantry)
             data["aisles"] = _order_aisles(result.get("aisles"))
             data["check_you_have"] = [str(x) for x in result.get("check_you_have") or []]
-        row = session.get(ShoppingList, start)
         if row is None:
             row = ShoppingList(week_start=start)
         else:
             row.previous_data = row.data
         now = utcnow()
-        row.fingerprint = fingerprint(session, start)
-        row.menu_fingerprint = menu_fingerprint(session, start)
+        row.fingerprint = full_fp
+        row.menu_fingerprint = menu_fp
         row.data = data
         row.created_at = now
-        row.pending_fingerprint = None
-        row.pending_since = None
-        row.failed_attempts = 0
-        row.last_error = None
+        row.clear_pending()
         row.last_attempt_at = now
         session.add(row)
         session.commit()

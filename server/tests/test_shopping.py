@@ -1,4 +1,3 @@
-import dataclasses
 from datetime import date, timedelta
 
 import pytest
@@ -9,7 +8,6 @@ from app.db import get_session
 from app.main import app
 from app.menu.entries import set_takeaway
 from app.models import ShoppingList, utcnow
-from app.shopping import service
 from app.shopping.service import (
     ShoppingError,
     build_list,
@@ -122,12 +120,7 @@ def test_build_without_api_key_raises(session, make_dish, serve):
         build_list(session, SAT)
 
 
-def test_build_records_menu_fingerprint_clears_pending_and_keeps_previous(session, make_dish, serve, monkeypatch):
-    monkeypatch.setattr(service, "config", dataclasses.replace(service.config, anthropic_api_key="k"))
-    monkeypatch.setattr(service, "_call_claude", lambda dishes, pantry: {
-        "aisles": [{"name": "Produce", "items": [{"item": "Rice", "quantity": "1", "for": ["A"]}]}],
-        "check_you_have": [],
-    })
+def test_build_records_menu_fingerprint_clears_pending_and_keeps_previous(session, make_dish, serve, fake_claude):
     a = make_dish("A", ingredients=["rice"])
     serve(a, SAT + timedelta(days=1))
     first = build_list(session, SAT)
@@ -143,6 +136,57 @@ def test_build_records_menu_fingerprint_clears_pending_and_keeps_previous(sessio
     assert row.previous_data == first_data
     assert (row.pending_fingerprint, row.pending_since, row.failed_attempts, row.last_error) == (None, None, 0, None)
     assert row.last_attempt_at is not None
+
+
+def test_build_fingerprints_describe_the_menu_sent_to_claude(session, make_dish, serve, fake_claude):
+    a = make_dish("A", ingredients=["rice"])
+    b = make_dish("B", ingredients=["fish"])
+    serve(a, SAT + timedelta(days=1))
+    fake_claude.during = lambda: serve(b, SAT + timedelta(days=2))
+    row = build_list(session, SAT)
+    assert fake_claude.calls == [["A"]]
+    assert row.menu_fingerprint != menu_fingerprint(session, SAT)
+    assert row.fingerprint != fingerprint(session, SAT)
+
+
+def _other_session(session):
+    from sqlalchemy.orm import Session
+
+    return Session(session.get_bind(), expire_on_commit=False)
+
+
+def test_build_only_if_stale_skips_list_already_rebuilt_elsewhere(session, make_dish, serve, fake_claude):
+    a = make_dish("A", ingredients=["rice"])
+    session.add(ShoppingList(week_start=SAT, fingerprint="f", data={"aisles": []}, menu_fingerprint="old"))
+    session.commit()
+    serve(a, SAT + timedelta(days=1))
+    session.get(ShoppingList, SAT)  # this session now holds the stale row
+
+    with _other_session(session) as other:
+        build_list(other, SAT)
+    assert len(fake_claude.calls) == 1
+
+    row = build_list(session, SAT, only_if_stale=True)
+    assert len(fake_claude.calls) == 1
+    assert row.menu_fingerprint == menu_fingerprint(session, SAT)
+
+    build_list(session, SAT)  # manual rebuild always builds
+    assert len(fake_claude.calls) == 2
+
+
+def test_build_previous_data_comes_from_fresh_row(session, make_dish, serve, fake_claude):
+    a = make_dish("A", ingredients=["rice"])
+    serve(a, SAT + timedelta(days=1))
+    session.add(ShoppingList(week_start=SAT, fingerprint="f", data={"aisles": [], "v": 1}))
+    session.commit()
+    session.get(ShoppingList, SAT)
+
+    with _other_session(session) as other:
+        other.get(ShoppingList, SAT).data = {"aisles": [], "v": 2}
+        other.commit()
+
+    row = build_list(session, SAT, only_if_stale=True)
+    assert row.previous_data == {"aisles": [], "v": 2}
 
 
 def test_plain_text_lists_aisles_check_and_missing():
@@ -192,13 +236,24 @@ def test_page_updating_after_menu_change(session, make_dish, serve, client):
     assert "Out of date" not in html
 
 
-def test_page_failed_shows_error(session, make_dish, serve, client):
-    _saved(session, last_error="boom", failed_attempts=1)
+def test_page_failed_shows_error_and_keeps_polling(session, make_dish, serve, client):
+    row = _saved(session, last_error="boom", failed_attempts=1)
     serve(make_dish("A", ingredients=["rice"]), SAT + timedelta(days=1))
+    row.pending_fingerprint = menu_fingerprint(session, SAT)
+    session.commit()
     html = client.get(f"/shopping?week={SAT}").text
     assert "Couldn't update: boom" in html
     assert "Updating shortly" not in html
-    assert "every 10s" not in html
+    assert 'hx-trigger="every 10s"' in html
+
+
+def test_page_error_for_older_menu_shows_updating(session, make_dish, serve, client):
+    _saved(session, last_error="boom", failed_attempts=1, pending_fingerprint="older")
+    serve(make_dish("A", ingredients=["rice"]), SAT + timedelta(days=1))
+    html = client.get(f"/shopping?week={SAT}").text
+    assert "Updating shortly…" in html
+    assert "Couldn't update" not in html
+    assert 'hx-trigger="every 10s"' in html
 
 
 def test_page_pantry_change_shows_out_of_date(session, client):

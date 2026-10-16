@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import get_session
+from app.shopping.auto import auto_weeks
 from app.shopping.service import (
     NO_KEY_MESSAGE,
     ShoppingError,
@@ -32,10 +33,9 @@ def _parse_week(week: str) -> date:
 def _state(session: Session, start: date, saved) -> str:
     if saved is None:
         return "none"
-    current = clock.week_start(clock.today())
-    auto_week = start in (current, current + timedelta(days=7))
-    if auto_week and saved.menu_fingerprint != menu_fingerprint(session, start):
-        return "failed" if saved.last_error else "updating"
+    menu_fp = menu_fingerprint(session, start)
+    if start in auto_weeks(clock.today()) and saved.menu_fingerprint != menu_fp:
+        return "failed" if saved.last_error and saved.pending_fingerprint == menu_fp else "updating"
     if saved.fingerprint != fingerprint(session, start):
         return "stale"
     return "current"

@@ -5,9 +5,8 @@ import pytest
 from app import clock, settings_store
 from app.menu.entries import clear
 from app.models import ShoppingList
-from app.shopping import auto
 from app.shopping.auto import decide, tick
-from app.shopping.service import ShoppingError, menu_fingerprint
+from app.shopping.service import ShoppingError, fingerprint, menu_fingerprint
 
 SAT = date(2026, 10, 17)
 T0 = datetime(2026, 10, 18, 9, 0)
@@ -69,122 +68,116 @@ def test_decide_retries_once_after_failure_then_gives_up_until_change():
     assert decide(row, "newer", m(606)) == "rebuild"
 
 
-# --- tick -------------------------------------------------------------------
+# --- tick (real build_list, Claude faked at the boundary) ------------------
 
 @pytest.fixture
 def today(monkeypatch):
     monkeypatch.setattr(clock, "today", lambda: SAT + timedelta(days=1))
 
 
-@pytest.fixture
-def calls():
-    return []
-
-
-@pytest.fixture
-def fake_build(session, calls):
-    """Records calls and marks the list rebuilt, like build_list does on success."""
-    def _build(s, start):
-        calls.append(start)
-        row = s.get(ShoppingList, start)
-        row.menu_fingerprint = menu_fingerprint(s, start)
-        row.pending_fingerprint = row.pending_since = row.last_error = None
-        row.failed_attempts = 0
-        s.commit()
-        return row
-    return _build
-
-
-def _save(session, start):
-    session.add(ShoppingList(week_start=start, fingerprint="f", data={"aisles": []},
-                             menu_fingerprint=menu_fingerprint(session, start)))
+def _save(session, start, **kw):
+    kw.setdefault("menu_fingerprint", menu_fingerprint(session, start))
+    session.add(ShoppingList(week_start=start, fingerprint=fingerprint(session, start), data={"aisles": []}, **kw))
     session.commit()
 
 
-def test_tick_rebuilds_current_week_after_quiet_period(session, make_dish, serve, today, calls, fake_build):
+def test_tick_rebuilds_current_week_after_quiet_period(session, make_dish, serve, today, fake_claude):
     a = make_dish("A", ingredients=["rice"])
     _save(session, SAT)
     _save(session, SAT + timedelta(days=7))
     serve(a, SAT + timedelta(days=2))
 
-    assert tick(session, T0, build=fake_build) == []
-    assert calls == []
-    assert tick(session, m(6), build=fake_build) == [SAT]
-    assert calls == [SAT]
-    assert tick(session, m(20), build=fake_build) == []
-    assert calls == [SAT]
+    assert tick(session, T0) == []
+    assert fake_claude.calls == []
+    assert tick(session, m(6)) == [SAT]
+    assert fake_claude.calls == [["A"]]
+    assert session.get(ShoppingList, SAT).menu_fingerprint == menu_fingerprint(session, SAT)
+    assert tick(session, m(20)) == []
+    assert fake_claude.calls == [["A"]]
 
 
-def test_tick_skips_unsaved_next_week_and_past_weeks(session, make_dish, serve, today, calls, fake_build):
+def test_tick_skips_unsaved_next_week_and_past_weeks(session, make_dish, serve, today, fake_claude):
     a = make_dish("A", ingredients=["rice"])
     past = SAT - timedelta(days=7)
     _save(session, past)
     serve(a, SAT + timedelta(days=8))
     serve(a, past + timedelta(days=1))
     for t in (T0, m(6), m(30)):
-        tick(session, t, build=fake_build)
-    assert calls == []
+        tick(session, t)
+    assert fake_claude.calls == []
 
 
-def test_tick_rebuilds_after_weekday_dinner_cleared(session, make_dish, serve, today, calls, fake_build):
+def test_tick_rebuilds_after_weekday_dinner_cleared(session, make_dish, serve, today, fake_claude):
     a = make_dish("A", ingredients=["rice"])
+    b = make_dish("B", ingredients=["fish"])
     serve(a, SAT + timedelta(days=2))
+    serve(b, SAT + timedelta(days=3))
     _save(session, SAT)
     clear(session, SAT + timedelta(days=2))
 
-    tick(session, T0, build=fake_build)
-    assert calls == []
-    tick(session, m(5), build=fake_build)
-    assert calls == [SAT]
+    tick(session, T0)
+    assert fake_claude.calls == []
+    tick(session, m(5))
+    assert fake_claude.calls == [["B"]]
 
 
-def test_tick_ignores_pantry_change(session, make_dish, serve, today, calls, fake_build):
+def test_tick_ignores_pantry_change(session, make_dish, serve, today, fake_claude):
     a = make_dish("A", ingredients=["rice"])
     serve(a, SAT + timedelta(days=2))
     _save(session, SAT)
     settings_store.put(session, "pantry", "salt")
     session.commit()
     for t in (T0, m(6), m(30)):
-        tick(session, t, build=fake_build)
-    assert calls == []
+        tick(session, t)
+    assert fake_claude.calls == []
 
 
-def test_tick_records_failure_and_retries_once(session, make_dish, serve, today, calls):
-    def failing(s, start):
-        calls.append(start)
-        raise ShoppingError("boom")
+def test_tick_adopts_menu_fingerprint_for_current_pre_migration_list(session, make_dish, serve, today, fake_claude):
+    a = make_dish("A", ingredients=["rice"])
+    serve(a, SAT + timedelta(days=2))
+    _save(session, SAT, menu_fingerprint=None)
+    for t in (T0, m(6), m(30)):
+        tick(session, t)
+    assert fake_claude.calls == []
+    assert session.get(ShoppingList, SAT).menu_fingerprint == menu_fingerprint(session, SAT)
 
+
+def test_tick_rebuilds_out_of_date_pre_migration_list(session, make_dish, serve, today, fake_claude):
+    a = make_dish("A", ingredients=["rice"])
+    _save(session, SAT, menu_fingerprint=None)
+    serve(a, SAT + timedelta(days=2))
+    tick(session, T0)
+    assert fake_claude.calls == []
+    assert session.get(ShoppingList, SAT).menu_fingerprint is None
+    tick(session, m(5))
+    assert fake_claude.calls == [["A"]]
+
+
+def test_tick_records_failure_and_retries_once(session, make_dish, serve, today, fake_claude):
+    fake_claude.error = ShoppingError("boom")
     a = make_dish("A", ingredients=["rice"])
     _save(session, SAT)
     serve(a, SAT + timedelta(days=2))
 
-    tick(session, T0, build=failing)
-    tick(session, m(5), build=failing)
+    tick(session, T0)
+    tick(session, m(5))
     row = session.get(ShoppingList, SAT)
     assert (row.failed_attempts, row.last_error, row.last_attempt_at) == (1, "boom", m(5))
 
-    tick(session, m(19), build=failing)
-    assert calls == [SAT]
-    tick(session, m(20), build=failing)
-    assert calls == [SAT, SAT]
+    tick(session, m(19))
+    assert len(fake_claude.calls) == 1
+    tick(session, m(20))
+    assert len(fake_claude.calls) == 2
     assert session.get(ShoppingList, SAT).failed_attempts == 2
-    tick(session, m(120), build=failing)
-    assert calls == [SAT, SAT]
+    tick(session, m(120))
+    assert len(fake_claude.calls) == 2
 
 
-def test_tick_generic_exception_message(session, make_dish, serve, today):
-    def broken(s, start):
-        raise RuntimeError("secret detail")
-
+def test_tick_generic_exception_message(session, make_dish, serve, today, fake_claude):
+    fake_claude.error = RuntimeError("secret detail")
     a = make_dish("A", ingredients=["rice"])
     _save(session, SAT)
     serve(a, SAT + timedelta(days=2))
-    tick(session, T0, build=broken)
-    tick(session, m(5), build=broken)
+    tick(session, T0)
+    tick(session, m(5))
     assert session.get(ShoppingList, SAT).last_error == "Couldn't build the list: RuntimeError"
-
-
-def test_loop_constants():
-    assert auto.QUIET == timedelta(minutes=5)
-    assert auto.RETRY_AFTER == timedelta(minutes=15)
-    assert auto.TICK_SECONDS == 60
