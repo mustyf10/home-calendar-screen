@@ -25,6 +25,8 @@ export DATA_DIR=/tmp/hcs-data BACKUP_DIR=/tmp/hcs-backups ANTHROPIC_API_KEY=sk-.
 
 Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`).
 
+Screen preview: http://127.0.0.1:8000/preview (linked from Settings) shows the panel's HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning and offline-stamp controls live in the URL and never affect the real panel.
+
 Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`.
 Dry-run the client against a local server:
 
@@ -84,7 +86,7 @@ If `kitchen.home` doesn't resolve over Tailscale, add `192.168.1.4` as a split-D
 ## Pi 3B (display) install
 
 1. Flash Raspberry Pi OS Lite 64-bit, enable SSH, attach the Waveshare HAT.
-2. Copy `display-client/` to the Pi and run `sudo ./install.sh` in it (idempotent). It installs packages, enables SPI, fetches the pinned Waveshare driver into `/opt/home-calendar-frame/`, creates `/etc/home-calendar-frame/frame.env` and enables the 5-minute timer.
+2. Copy `display-client/` to the Pi (`scp -r` or `rsync -rL`: `stamp.py` is a symlink to `server/app/display/stamp.py` and must arrive as a file) and run `sudo ./install.sh` in it (idempotent). It installs packages, enables SPI, fetches the pinned Waveshare driver into `/opt/home-calendar-frame/`, creates `/etc/home-calendar-frame/frame.env` and enables the 5-minute timer.
 3. Copy Caddy's root CA (from your laptop):
    ```sh
    ssh pi@192.168.1.4 sudo cat /appdata/caddy/data/caddy/pki/authorities/local/root.crt > caddy-root.crt

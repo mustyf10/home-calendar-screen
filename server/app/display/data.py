@@ -180,25 +180,31 @@ def _range_text(start: date, end: date) -> str:
     return f"{fmt_day(start)} – {fmt_day(end)}"
 
 
-def _dinners(session: Session, today: date) -> Dinners:
+def _menu(session: Session, today: date) -> dict[date, str | None]:
+    """Dinner title per date of today's menu week: a dish title, "Takeaway" or None."""
     days = week_dates(week_start(today))
     rows = {
         e.date: e
         for e in session.scalars(select(MenuEntry).where(MenuEntry.date.between(days[0], days[-1])))
     }
-    out = []
+    menu: dict[date, str | None] = {}
     for d in days:
         entry = rows.get(d)
         if entry is None:
-            title = "Takeaway" if d.weekday() == 5 else None
+            menu[d] = "Takeaway" if d.weekday() == 5 else None
         elif entry.kind == "dish":
-            title = entry.dish.title
+            menu[d] = entry.dish.title
         elif entry.kind == "takeaway":
-            title = "Takeaway"
+            menu[d] = "Takeaway"
         else:
-            title = None
-        out.append(DinnerRow(label=f"{d:%a} {d.day}", title=title, is_today=d == today))
-    return Dinners(range_text=_range_text(days[0], days[-1]), rows=out)
+            menu[d] = None
+    return menu
+
+
+def _dinners(menu: dict[date, str | None], today: date) -> Dinners:
+    days = week_dates(week_start(today))
+    rows = [DinnerRow(label=f"{d:%a} {d.day}", title=menu.get(d), is_today=d == today) for d in days]
+    return Dinners(range_text=_range_text(days[0], days[-1]), rows=rows)
 
 
 def _utc_naive_to_local(dt: datetime, tz) -> datetime:
@@ -228,15 +234,33 @@ def _warning(session: Session, now: datetime, uptime: timedelta) -> str | None:
     return " · ".join(warnings) or None
 
 
-def build_display(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayModel:
+@dataclass
+class DisplayInputs:
+    events: list[_Event]
+    menu: dict[date, str | None]
+    warning: str | None
+
+
+def load_inputs(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayInputs:
     if uptime is None:
         uptime = timedelta(seconds=time.monotonic() - _STARTED)
-    today = now.date()
-    events = [_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))]
-    return DisplayModel(
-        header=Header(weekday=f"{today:%A}".upper(), day=today.day, month_year=f"{today:%B %Y}"),
-        month_grid=_month_grid(today, events),
-        agenda=_agenda(events, today),
-        dinners=_dinners(session, today),
+    return DisplayInputs(
+        events=[_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))],
+        menu=_menu(session, now.date()),
         warning=_warning(session, now, uptime),
     )
+
+
+def compose(inputs: DisplayInputs, now: datetime) -> DisplayModel:
+    today = now.date()
+    return DisplayModel(
+        header=Header(weekday=f"{today:%A}".upper(), day=today.day, month_year=f"{today:%B %Y}"),
+        month_grid=_month_grid(today, inputs.events),
+        agenda=_agenda(inputs.events, today),
+        dinners=_dinners(inputs.menu, today),
+        warning=inputs.warning,
+    )
+
+
+def build_display(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayModel:
+    return compose(load_inputs(session, now, uptime), now)

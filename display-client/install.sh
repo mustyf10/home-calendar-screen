@@ -24,6 +24,7 @@ for f in __init__.py epdconfig.py epd7in5_V2.py; do
   curl -fsSL "$epd_base/$f" -o "$opt/waveshare_epd/$f"
 done
 install -m 755 "$here/frame.py" "$opt/frame.py"
+install -m 644 "$here/stamp.py" "$opt/stamp.py"  # a symlink in the repo; install copies its target
 
 install -d "$etc"
 if [[ ! -f "$etc/frame.env" ]]; then

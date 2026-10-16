@@ -3,18 +3,25 @@ import asyncio
 import hashlib
 import io
 import time
+from datetime import datetime
 
 from PIL import Image
 from playwright.async_api import async_playwright
 
 from app.config import config
+from app.display.preview import PreviewParams, preview_now
+from app.display.stamp import stamp
 from app.heavy import heavy_lock
 
 WIDTH, HEIGHT = 800, 480
 MAX_AGE_S = 60
+PREVIEW_MIN_INTERVAL_S = 5
+PREVIEW_CACHE_SIZE = 8
 
 _lock = asyncio.Lock()
 _cache: dict = {"png": None, "etag": None, "rendered_at": 0.0}
+_preview_lock = asyncio.Lock()
+_preview_cache: dict[str, dict] = {}  # params.query() -> {"ver", "png", "at"}
 
 
 def to_one_bit(screenshot: bytes) -> bytes:
@@ -29,12 +36,12 @@ def etag_for(png: bytes) -> str:
     return '"' + hashlib.sha256(png).hexdigest()[:32] + '"'
 
 
-async def _screenshot() -> bytes:
+async def _screenshot(path: str = "/display") -> bytes:
     async with heavy_lock, async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
         try:
             page = await browser.new_page(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
-            await page.goto(f"{config.base_url_internal}/display", wait_until="networkidle")
+            await page.goto(f"{config.base_url_internal}{path}", wait_until="networkidle")
             return await page.screenshot(type="png")
         finally:
             await browser.close()
@@ -52,3 +59,28 @@ async def get_frame() -> tuple[bytes, str]:
             png = to_one_bit(await _screenshot())
             _cache.update(png=png, etag=etag_for(png), rendered_at=time.monotonic())
         return _cache["png"], _cache["etag"]
+
+
+async def get_preview_frame(params: PreviewParams, ver: str, *, now=time.monotonic, shoot=_screenshot) -> bytes:
+    """The 1-bit PNG for preview params, re-rendered only when ver changed and at most every 5 s.
+
+    Keeps its own small cache so the panel's frame and ETag are never affected.
+    """
+    key = params.query()
+    async with _preview_lock:
+        hit = _preview_cache.get(key)
+        if hit and (
+            hit["ver"] == ver or now() - hit["at"] < PREVIEW_MIN_INTERVAL_S or heavy_lock.locked()
+        ):
+            return hit["png"]
+        png = to_one_bit(await shoot(f"/display?{key}" if key else "/display"))
+        if params.offline:
+            since = datetime.combine(preview_now(params).date(), params.offline)
+            img = stamp(Image.open(io.BytesIO(png)), since)
+            out = io.BytesIO()
+            img.save(out, format="PNG")
+            png = out.getvalue()
+        _preview_cache[key] = {"ver": ver, "png": png, "at": now()}
+        while len(_preview_cache) > PREVIEW_CACHE_SIZE:
+            del _preview_cache[min(_preview_cache, key=lambda k: _preview_cache[k]["at"])]
+        return png

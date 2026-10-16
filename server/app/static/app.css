@@ -28,3 +28,14 @@ nav { flex-wrap: wrap; }
 .tag-toggle { display: inline-flex; align-items: center; gap: 0.2rem; margin-right: 0.6rem; }
 .tag-toggle input { margin: 0; }
 pre.plain { white-space: pre-wrap; }
+.preview-controls { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; align-items: end; }
+.preview-controls label, .preview-controls fieldset { margin: 0; width: auto; }
+.preview-controls input:not([type=checkbox]):not([type=radio]), .preview-controls select { width: auto; margin: 0; }
+.preview-panes { display: grid; grid-template-columns: 1fr; gap: 1.5rem; justify-items: center; overflow-x: auto;
+  width: 100vw; margin-left: calc(50% - 50vw); padding: 1rem; }
+@media (min-width: 1700px) { .preview-panes { grid-template-columns: auto auto; justify-content: center; } }
+.preview-panes h2 { font-size: 1rem; margin-bottom: 0.4rem; }
+.preview-panes iframe { display: block; border: 1px solid #000; background: #fff; }
+.panel { display: inline-block; line-height: 0; border: 24px solid #3a3a3a; border-radius: 6px; background: #f4f1ea; }
+.panel img { display: block; max-width: none; image-rendering: pixelated; mix-blend-mode: multiply; }
+.calib-card { height: auto; aspect-ratio: 85.6 / 53.98; border: 2px dashed currentColor; border-radius: 3mm; margin: 0.5rem 0; }
