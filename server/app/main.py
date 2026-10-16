@@ -13,6 +13,7 @@ from app.calendars import routes as calendar_routes
 from app.calendars.sync import run_sync_loop
 from app.config import config
 from app.dishes import routes as dish_routes
+from app.display import preview_routes
 from app.display import routes as display_routes
 from app.ingest import routes as ingest_routes
 from app.ingest.worker import run_worker
@@ -49,6 +50,7 @@ for module in (
     ingest_routes,
     calendar_routes,
     display_routes,
+    preview_routes,
 ):
     app.include_router(module.router)
 

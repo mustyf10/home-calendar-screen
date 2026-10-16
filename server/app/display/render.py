@@ -29,12 +29,12 @@ def etag_for(png: bytes) -> str:
     return '"' + hashlib.sha256(png).hexdigest()[:32] + '"'
 
 
-async def _screenshot() -> bytes:
+async def screenshot(path: str = "/display") -> bytes:
     async with heavy_lock, async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox"])
         try:
             page = await browser.new_page(viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1)
-            await page.goto(f"{config.base_url_internal}/display", wait_until="networkidle")
+            await page.goto(f"{config.base_url_internal}{path}", wait_until="networkidle")
             return await page.screenshot(type="png")
         finally:
             await browser.close()
@@ -49,6 +49,6 @@ async def get_frame() -> tuple[bytes, str]:
     async with _lock:
         stale = _cache["png"] is None or time.monotonic() - _cache["rendered_at"] > MAX_AGE_S
         if stale and not (_cache["png"] is not None and heavy_lock.locked()):
-            png = to_one_bit(await _screenshot())
+            png = to_one_bit(await screenshot())
             _cache.update(png=png, etag=etag_for(png), rendered_at=time.monotonic())
         return _cache["png"], _cache["etag"]

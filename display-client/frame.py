@@ -20,12 +20,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable, Optional, Tuple, Union
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # stamp.py and waveshare_epd live alongside
+from stamp import stamp  # noqa: E402  (shared with the server: server/app/display/stamp.py)
+
 log = logging.getLogger("frame")
 
 SIZE = (800, 480)
 OFFLINE_AFTER = timedelta(minutes=60)
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-FONT_SIZE = 22
 
 Window = Optional[Tuple[time, time]]
 
@@ -158,30 +159,7 @@ def fetch(url: str, etag: Optional[str], ca_file: Optional[str]) -> FetchResult:
         return FetchFailed(str(getattr(e, "reason", e)))
 
 
-def stamp(img, since: datetime):
-    from PIL import ImageDraw, ImageFont
-
-    img = img.copy()
-    try:
-        font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
-    except OSError:
-        try:
-            font = ImageFont.load_default(size=FONT_SIZE)
-        except TypeError:  # Pillow < 10.1
-            font = ImageFont.load_default()
-    text = f"Offline since {since:%H:%M}"
-    draw = ImageDraw.Draw(img)
-    left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
-    pad = 10
-    w, h = right - left + 2 * pad, bottom - top + 2 * pad
-    y0 = img.height - h
-    draw.rectangle((0, y0, w, img.height), fill=0)
-    draw.text((pad - left, y0 + pad - top), text, font=font, fill=255)
-    return img
-
-
 def epd_show(img) -> None:
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from waveshare_epd import epd7in5_V2
 
     epd = epd7in5_V2.EPD()

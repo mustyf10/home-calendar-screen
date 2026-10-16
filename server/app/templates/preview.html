@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Screen preview · Kitchen{% endblock %}
+{% block content %}
+<h1>Screen preview</h1>
+<p class="muted">Updates live when the data or the display code changes. These controls only affect this page, never the real panel.</p>
+
+<form method="get" action="/preview" class="preview-controls" onchange="this.submit()">
+  <label>Pretend time <small class="muted">(live: {{ default_at | replace("T", " ") }})</small>
+    <input type="datetime-local" name="at" value="{{ params.at.strftime('%Y-%m-%dT%H:%M') if params.at else '' }}">
+  </label>
+  <a href="#" onclick="const f = this.closest('form'); f.at.value = ''; f.submit(); return false">Now</a>
+  <label>Scenario
+    <select name="scenario">
+      {% for key, label in labels.items() %}
+      <option value="{{ key }}" {% if key == params.scenario %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <fieldset>
+    <legend>Warnings</legend>
+    {% for key, label in warning_labels.items() %}
+    <label><input type="checkbox" name="warn" value="{{ key }}" {% if key in params.warn %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+  <label>Offline since
+    <input type="time" name="offline" value="{{ params.offline.strftime('%H:%M') if params.offline else '' }}">
+  </label>
+</form>
+
+<fieldset class="preview-controls" id="zoom">
+  <legend>Zoom</legend>
+  <label><input type="radio" name="zoom" value="1"> 1×</label>
+  <label><input type="radio" name="zoom" value="2"> 2×</label>
+  <label><input type="radio" name="zoom" value="mm"> 1:1 physical</label>
+</fieldset>
+
+{% if note %}<p class="warn">{{ note }}</p>{% endif %}
+
+<div class="preview-panes">
+  <div>
+    <h2>HTML layout</h2>
+    <iframe id="html-pane" src="/display?{{ query }}" width="800" height="480" scrolling="no" title="Display HTML"></iframe>
+  </div>
+  <div>
+    <h2>Panel image (1-bit)</h2>
+    <div class="panel">
+      <img id="png-pane" src="/preview/frame.png?{% if query %}{{ query }}&{% endif %}v={{ version }}" width="800" height="480"
+           style="image-rendering: pixelated" alt="Rendered panel image">
+    </div>
+  </div>
+</div>
+
+<details>
+  <summary>Calibrate 1:1 physical size</summary>
+  <p class="muted">Hold a bank card against the screen and drag until the outline matches its width.</p>
+  <input type="range" id="calib" min="2" max="12" step="0.01">
+  <div class="calib-card" id="calib-card"></div>
+</details>
+
+<script>
+  const query = {{ query | tojson }};
+  let ver = {{ version | tojson }}, run = 0;
+  const iframe = document.getElementById("html-pane"), img = document.getElementById("png-pane");
+  const frameUrl = (v) => `/preview/frame.png?${query ? query + "&" : ""}v=${v}`;
+  // The server may answer with an older render (throttled or busy); its X-Preview-Version
+  // says which. Keep asking every second until it matches, for up to a minute.
+  async function loadPng(target, id, started) {
+    try {
+      const r = await fetch(frameUrl(target), {cache: "no-store"});
+      const blob = r.ok ? await r.blob() : null;
+      if (id !== run) return;  // a newer version restarted the loop
+      if (blob) {
+        const old = img.src;
+        img.src = URL.createObjectURL(blob);
+        if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+        if (r.headers.get("X-Preview-Version") === target) return;
+      }
+    } catch (e) { if (id !== run) return; }
+    if (Date.now() - started < 60000) setTimeout(() => loadPng(target, id, started), 1000);
+  }
+  async function poll() {
+    try {
+      const r = await fetch("/preview/version?" + query, {cache: "no-store"});
+      const v = r.ok ? (await r.text()).trim() : ver;
+      if (v !== ver) {
+        ver = v;
+        iframe.contentWindow.location.reload();
+        loadPng(v, ++run, Date.now());
+      }
+    } catch (e) { /* server restarting: keep polling */ }
+    setTimeout(poll, 2000);
+  }
+  loadPng(ver, run, Date.now());  // the first image may itself be an older, throttled render
+  setTimeout(poll, 2000);
+
+  const calib = document.getElementById("calib"), card = document.getElementById("calib-card");
+  const pxPerMm = () => parseFloat(localStorage["hcs.pxPerMm"]) || 96 / 25.4;
+  function applyZoom() {
+    const z = localStorage["hcs.zoom"] || "1";
+    const w = z === "2" ? 1600 : z === "mm" ? 163.2 * pxPerMm() : 800;
+    img.style.width = `${w}px`;
+    img.style.height = `${w * 0.6}px`;
+    iframe.style.zoom = w / 800;
+    document.querySelectorAll("#zoom input").forEach((r) => { r.checked = r.value === z; });
+    calib.value = pxPerMm();
+    card.style.width = `${85.6 * pxPerMm()}px`;
+  }
+  document.getElementById("zoom").onchange = (e) => { localStorage["hcs.zoom"] = e.target.value; applyZoom(); };
+  calib.oninput = () => { localStorage["hcs.pxPerMm"] = calib.value; applyZoom(); };
+  applyZoom();
+</script>
+{% endblock %}

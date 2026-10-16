@@ -4,12 +4,16 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app import settings_store
-from app.display.data import build_display
+from app.display.data import compose, load_inputs
 from app.models import Calendar, CalendarEvent, MenuEntry
 
 LONDON = ZoneInfo("Europe/London")
 NOW = datetime(2026, 10, 21, 9, 0, tzinfo=LONDON)  # Wednesday
 TODAY = NOW.date()
+
+
+def build_display(session, now, uptime=None):
+    return compose(load_inputs(session, now, uptime), now)
 
 
 @pytest.fixture

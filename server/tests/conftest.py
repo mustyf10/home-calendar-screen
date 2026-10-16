@@ -1,6 +1,7 @@
 import dataclasses
 import os
 import tempfile
+from datetime import datetime
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("TZ", "Europe/London")
@@ -9,6 +10,7 @@ os.environ.pop("ANTHROPIC_API_KEY", None)
 import pytest
 from sqlalchemy.orm import Session
 
+from app import clock
 from app.db import make_engine
 from app.models import Base, Dish, MenuEntry, Tag
 from app.tags.service import CORE_TAGS, set_dish_tags
@@ -44,6 +46,17 @@ def serve(session):
         session.commit()
 
     return _serve
+
+
+FIXED_NOW = "2026-10-16T12:00"  # a Friday
+
+
+@pytest.fixture
+def fixed_clock(monkeypatch):
+    """Pins app.clock.now() (and so today()) to FIXED_NOW in the configured zone."""
+    now = datetime.fromisoformat(FIXED_NOW).replace(tzinfo=clock.tz())
+    monkeypatch.setattr(clock, "now", lambda: now)
+    return now
 
 
 class FakeClaude:
