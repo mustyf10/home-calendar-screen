@@ -6,12 +6,15 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import get_session
+from app.shopping.auto import auto_weeks
 from app.shopping.service import (
     NO_KEY_MESSAGE,
     ShoppingError,
     build_list,
+    diff_lists,
     fingerprint,
     get_list,
+    menu_fingerprint,
     plain_text,
     week_dinners,
 )
@@ -27,6 +30,17 @@ def _parse_week(week: str) -> date:
         return clock.week_start(clock.today()) + timedelta(days=7)
 
 
+def _state(session: Session, start: date, saved) -> str:
+    if saved is None:
+        return "none"
+    menu_fp = menu_fingerprint(session, start)
+    if start in auto_weeks(clock.today()) and saved.menu_fingerprint != menu_fp:
+        return "failed" if saved.last_error and saved.pending_fingerprint == menu_fp else "updating"
+    if saved.fingerprint != fingerprint(session, start):
+        return "stale"
+    return "current"
+
+
 def _page(request: Request, session: Session, start: date, error: str | None = None, status_code: int = 200):
     saved = get_list(session, start)
     end = start + timedelta(days=6)
@@ -37,7 +51,8 @@ def _page(request: Request, session: Session, start: date, error: str | None = N
         "next_week": start + timedelta(days=7),
         "dinners": week_dinners(session, start),
         "saved": saved,
-        "out_of_date": saved is not None and saved.fingerprint != fingerprint(session, start),
+        "state": _state(session, start, saved),
+        "diff": diff_lists(saved.previous_data, saved.data) if saved else None,
         "text": plain_text(saved.data) if saved else "",
         "built_at": saved.created_at.replace(tzinfo=timezone.utc).astimezone(clock.tz()) if saved else None,
         "error": error,

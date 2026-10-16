@@ -179,3 +179,16 @@ class ShoppingList(Base):
     fingerprint: Mapped[str] = mapped_column(String)
     data: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    menu_fingerprint: Mapped[str | None] = mapped_column(String)
+    pending_fingerprint: Mapped[str | None] = mapped_column(String)
+    pending_since: Mapped[datetime | None] = mapped_column(DateTime)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    previous_data: Mapped[dict | None] = mapped_column(JSON)
+
+    def clear_pending(self) -> None:
+        self.pending_fingerprint = None
+        self.pending_since = None
+        self.failed_attempts = 0
+        self.last_error = None

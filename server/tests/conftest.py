@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import tempfile
 
@@ -43,3 +44,31 @@ def serve(session):
         session.commit()
 
     return _serve
+
+
+class FakeClaude:
+    """Stands in for service._call_claude: records dish titles, can run code mid-call or raise."""
+
+    def __init__(self):
+        self.calls = []
+        self.during = None
+        self.error = None
+
+    def __call__(self, dishes, pantry):
+        self.calls.append([d.title for d in dishes])
+        if self.during:
+            self.during()
+        if self.error:
+            raise self.error
+        items = [{"item": d.title, "quantity": "1", "for": [d.title]} for d in dishes]
+        return {"aisles": [{"name": "Produce", "items": items}], "check_you_have": []}
+
+
+@pytest.fixture
+def fake_claude(monkeypatch):
+    from app.shopping import service
+
+    fake = FakeClaude()
+    monkeypatch.setattr(service, "config", dataclasses.replace(service.config, anthropic_api_key="k"))
+    monkeypatch.setattr(service, "_call_claude", fake)
+    return fake
