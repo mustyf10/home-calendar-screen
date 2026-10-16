@@ -18,6 +18,7 @@ from app.ingest import routes as ingest_routes
 from app.ingest.worker import run_worker
 from app.menu import routes as menu_routes
 from app.shopping import routes as shopping_routes
+from app.shopping.auto import run_shopping_loop
 from app.tags import routes as tag_routes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -25,7 +26,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    tasks = [asyncio.create_task(c()) for c in (run_worker, run_sync_loop, run_backup_loop)]
+    loops = (run_worker, run_sync_loop, run_backup_loop, run_shopping_loop)
+    tasks = [asyncio.create_task(c()) for c in loops]
     yield
     for t in tasks:
         t.cancel()

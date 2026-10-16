@@ -1,5 +1,6 @@
 """Weekly shopping list: the week's dinners -> Claude -> aisles, cached by fingerprint."""
 import hashlib
+import threading
 from datetime import date, timedelta
 
 from sqlalchemy import select
@@ -11,6 +12,8 @@ from app.models import Dish, MenuEntry, ShoppingList, utcnow
 
 AISLES = ("Produce", "Meat & fish", "Dairy & eggs", "Bakery", "Tins & dry goods", "Frozen", "Other")
 NO_KEY_MESSAGE = "Shopping list needs ANTHROPIC_API_KEY"
+# Serialises builds so a manual rebuild and the background loop never call Claude together.
+_build_lock = threading.Lock()
 
 TOOL = {
     "name": "shopping_list",
@@ -68,12 +71,16 @@ def pantry_text(session: Session) -> str:
     return settings_store.get(session, "pantry", settings_store.DEFAULT_PANTRY) or ""
 
 
-def fingerprint(session: Session, start: date) -> str:
+def menu_fingerprint(session: Session, start: date) -> str:
     parts = sorted(
         f"{d.isoformat()}|{dish.id}|{dish.updated_at.isoformat()}"
         for d, dish in week_dinners(session, start)
     )
-    payload = "\n".join(parts) + "\n--\n" + pantry_text(session)
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def fingerprint(session: Session, start: date) -> str:
+    payload = menu_fingerprint(session, start) + "\n--\n" + pantry_text(session)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -132,28 +139,69 @@ def _order_aisles(raw_aisles: list) -> list[dict]:
 
 
 def build_list(session: Session, start: date) -> ShoppingList:
-    if not config.anthropic_api_key:
-        raise ShoppingError(NO_KEY_MESSAGE)
-    unique = list(dict.fromkeys(dish for _, dish in week_dinners(session, start)))
-    with_ingredients = [d for d in unique if d.ingredients]
-    pantry = pantry_text(session)
-    data = {
-        "aisles": [],
-        "check_you_have": [],
-        "no_ingredients": [d.title for d in unique if not d.ingredients],
-        "dinners": [d.title for d in unique],
-    }
-    if with_ingredients:
-        result = _call_claude(with_ingredients, pantry)
-        data["aisles"] = _order_aisles(result.get("aisles"))
-        data["check_you_have"] = [str(x) for x in result.get("check_you_have") or []]
-    row = session.get(ShoppingList, start) or ShoppingList(week_start=start)
-    row.fingerprint = fingerprint(session, start)
-    row.data = data
-    row.created_at = utcnow()
-    session.add(row)
-    session.commit()
-    return row
+    with _build_lock:
+        if not config.anthropic_api_key:
+            raise ShoppingError(NO_KEY_MESSAGE)
+        unique = list(dict.fromkeys(dish for _, dish in week_dinners(session, start)))
+        with_ingredients = [d for d in unique if d.ingredients]
+        pantry = pantry_text(session)
+        data = {
+            "aisles": [],
+            "check_you_have": [],
+            "no_ingredients": [d.title for d in unique if not d.ingredients],
+            "dinners": [d.title for d in unique],
+        }
+        if with_ingredients:
+            result = _call_claude(with_ingredients, pantry)
+            data["aisles"] = _order_aisles(result.get("aisles"))
+            data["check_you_have"] = [str(x) for x in result.get("check_you_have") or []]
+        row = session.get(ShoppingList, start)
+        if row is None:
+            row = ShoppingList(week_start=start)
+        else:
+            row.previous_data = row.data
+        now = utcnow()
+        row.fingerprint = fingerprint(session, start)
+        row.menu_fingerprint = menu_fingerprint(session, start)
+        row.data = data
+        row.created_at = now
+        row.pending_fingerprint = None
+        row.pending_since = None
+        row.failed_attempts = 0
+        row.last_error = None
+        row.last_attempt_at = now
+        session.add(row)
+        session.commit()
+        return row
+
+
+def _items_by_name(data: dict) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for aisle in data.get("aisles") or []:
+        for it in aisle.get("items") or []:
+            out.setdefault(it["item"].strip().lower(), it)
+    return out
+
+
+def diff_lists(old: dict | None, new: dict) -> dict:
+    """Items added, removed, or with a different quantity, matched by name across aisles."""
+    diff = {"added": [], "removed": [], "changed": []}
+    if old is None:
+        return diff
+    before, after = _items_by_name(old), _items_by_name(new)
+    for key, it in after.items():
+        if key not in before:
+            diff["added"].append({"item": it["item"], "quantity": it.get("quantity", "")})
+        else:
+            was, now = (before[key].get("quantity") or "").strip(), (it.get("quantity") or "").strip()
+            if was.lower() != now.lower():
+                diff["changed"].append({"item": it["item"], "old": was, "new": now})
+    for key, it in before.items():
+        if key not in after:
+            diff["removed"].append({"item": it["item"], "quantity": it.get("quantity", "")})
+    for items in diff.values():
+        items.sort(key=lambda x: x["item"].strip().lower())
+    return diff
 
 
 def plain_text(data: dict) -> str:

@@ -10,8 +10,10 @@ from app.shopping.service import (
     NO_KEY_MESSAGE,
     ShoppingError,
     build_list,
+    diff_lists,
     fingerprint,
     get_list,
+    menu_fingerprint,
     plain_text,
     week_dinners,
 )
@@ -27,6 +29,18 @@ def _parse_week(week: str) -> date:
         return clock.week_start(clock.today()) + timedelta(days=7)
 
 
+def _state(session: Session, start: date, saved) -> str:
+    if saved is None:
+        return "none"
+    current = clock.week_start(clock.today())
+    auto_week = start in (current, current + timedelta(days=7))
+    if auto_week and saved.menu_fingerprint != menu_fingerprint(session, start):
+        return "failed" if saved.last_error else "updating"
+    if saved.fingerprint != fingerprint(session, start):
+        return "stale"
+    return "current"
+
+
 def _page(request: Request, session: Session, start: date, error: str | None = None, status_code: int = 200):
     saved = get_list(session, start)
     end = start + timedelta(days=6)
@@ -37,7 +51,8 @@ def _page(request: Request, session: Session, start: date, error: str | None = N
         "next_week": start + timedelta(days=7),
         "dinners": week_dinners(session, start),
         "saved": saved,
-        "out_of_date": saved is not None and saved.fingerprint != fingerprint(session, start),
+        "state": _state(session, start, saved),
+        "diff": diff_lists(saved.previous_data, saved.data) if saved else None,
         "text": plain_text(saved.data) if saved else "",
         "built_at": saved.created_at.replace(tzinfo=timezone.utc).astimezone(clock.tz()) if saved else None,
         "error": error,
