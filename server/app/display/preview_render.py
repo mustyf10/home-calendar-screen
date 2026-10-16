@@ -54,10 +54,12 @@ async def get_preview_frame(
             if hit:
                 return hit.png, hit.ver
             await sleep(wait)
-        png = to_one_bit(await shoot(f"/display?{key}" if key else "/display"))
+        try:
+            png = to_one_bit(await shoot(f"/display?{key}" if key else "/display"))
+        finally:
+            _last_shot = now()  # failed renders count too, so retries can't relaunch Chromium every second
         if params.offline:
             png = _with_stamp(png, datetime.combine(preview_now(params).date(), params.offline))
-        _last_shot = now()
         _cache[key] = _Entry(ver, png, _last_shot)
         while len(_cache) > CACHE_SIZE:
             del _cache[min(_cache, key=lambda k: _cache[k].at)]

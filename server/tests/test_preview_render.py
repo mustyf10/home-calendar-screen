@@ -117,6 +117,20 @@ def test_at_most_one_shoot_every_two_seconds_across_queries(rig):
     assert len(rig.shots) == 3 and rig.slept == [1]
 
 
+def test_failed_render_still_spaces_out_the_next_attempt(rig):
+    async def broken(path):
+        rig.shots.append(path)
+        raise RuntimeError("chromium crashed")
+
+    rig.shoot = broken
+    with pytest.raises(RuntimeError):
+        rig.frame("scenario=busy", "v1")
+    rig.t = 0.5
+    with pytest.raises(RuntimeError):
+        rig.frame("scenario=busy", "v1")  # waits out the 2 s gap before retrying
+    assert rig.slept == [1.5]
+
+
 def test_each_query_has_its_own_entry(rig):
     rig.frame("scenario=busy", "v1")
     rig.t = 2
