@@ -11,6 +11,7 @@ from app.main import app
 from app.models import Base
 from app.web import templates
 
+pytestmark = pytest.mark.usefixtures("fixed_clock")
 
 @pytest.fixture
 def client(monkeypatch):
@@ -29,10 +30,12 @@ def test_preview_page_has_both_panes(client):
     assert r.status_code == 200
     assert re.search(r'<iframe [^>]*src="/display\?scenario=busy"', r.text)
     assert re.search(r'<img [^>]*src="/preview/frame\.png\?scenario=busy&v=[0-9a-f]{16}"', r.text)
+    for label in ("No calendars", "Calendar failing", "Backup stale"):
+        assert label in r.text
 
 
 def test_preview_page_shows_range_note(client):
-    r = client.get("/preview?at=2099-01-01T09:00")
+    r = client.get("/preview?at=2027-06-01T09:00")
     assert "Calendar data only covers" in r.text
 
 
@@ -61,11 +64,12 @@ def test_preview_frame_png(client, monkeypatch):
 
     async def fake(params, ver):
         seen.append((params.query(), ver))
-        return b"\x89PNG fake"
+        return b"\x89PNG fake", "0123456789abcdef"
 
     monkeypatch.setattr("app.display.preview_routes.get_preview_frame", fake)
     r = client.get("/preview/frame.png?scenario=busy&v=ignored")
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
     assert r.headers["cache-control"] == "no-store"
+    assert r.headers["x-preview-version"] == "0123456789abcdef"
     assert seen[0][0] == "scenario=busy" and len(seen[0][1]) == 16

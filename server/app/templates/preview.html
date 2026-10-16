@@ -18,7 +18,7 @@
   </label>
   <fieldset>
     <legend>Warnings</legend>
-    {% for key, label in [("no-calendars", "No calendars"), ("calendar-failing", "Calendar failing"), ("backup", "Backup stale")] %}
+    {% for key, label in warning_labels.items() %}
     <label><input type="checkbox" name="warn" value="{{ key }}" {% if key in params.warn %}checked{% endif %}> {{ label }}</label>
     {% endfor %}
   </fieldset>
@@ -59,9 +59,25 @@
 
 <script>
   const query = {{ query | tojson }};
-  let ver = {{ version | tojson }}, timers = [];
+  let ver = {{ version | tojson }}, run = 0;
   const iframe = document.getElementById("html-pane"), img = document.getElementById("png-pane");
-  const frameSrc = (v, n) => `/preview/frame.png?${query ? query + "&" : ""}v=${v}${n ? "&r=" + n : ""}`;
+  const frameUrl = (v) => `/preview/frame.png?${query ? query + "&" : ""}v=${v}`;
+  // The server may answer with an older render (throttled or busy); its X-Preview-Version
+  // says which. Keep asking every second until it matches, for up to a minute.
+  async function loadPng(target, id, started) {
+    try {
+      const r = await fetch(frameUrl(target), {cache: "no-store"});
+      const blob = r.ok ? await r.blob() : null;
+      if (id !== run) return;  // a newer version restarted the loop
+      if (blob) {
+        const old = img.src;
+        img.src = URL.createObjectURL(blob);
+        if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+        if (r.headers.get("X-Preview-Version") === target) return;
+      }
+    } catch (e) { if (id !== run) return; }
+    if (Date.now() - started < 60000) setTimeout(() => loadPng(target, id, started), 1000);
+  }
   async function poll() {
     try {
       const r = await fetch("/preview/version?" + query, {cache: "no-store"});
@@ -69,12 +85,12 @@
       if (v !== ver) {
         ver = v;
         iframe.contentWindow.location.reload();
-        timers.forEach(clearTimeout);  // the server renders at most every 5 s; the second try picks it up
-        timers = [5000, 6000].map((ms, n) => setTimeout(() => { img.src = frameSrc(v, n); }, ms));
+        loadPng(v, ++run, Date.now());
       }
     } catch (e) { /* server restarting: keep polling */ }
     setTimeout(poll, 2000);
   }
+  loadPng(ver, run, Date.now());  // the first image may itself be an older, throttled render
   setTimeout(poll, 2000);
 
   const calib = document.getElementById("calib"), card = document.getElementById("calib-card");

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import get_session
-from app.display.preview import parse_params, preview_model, version
-from app.display.render import get_preview_frame
+from app.display.preview import WARNING_LABELS, parse_params, preview_model, version
+from app.display.preview_render import get_preview_frame
 from app.display.scenarios import SCENARIO_LABELS
 from app.web import render
 
@@ -25,6 +25,7 @@ def preview(request: Request, session: Session = Depends(get_session)):
         "params": params,
         "query": params.query(),
         "labels": SCENARIO_LABELS,
+        "warning_labels": WARNING_LABELS,
         "note": note,
         "version": version(session, params),
         "default_at": f"{clock.now():%Y-%m-%dT%H:%M}",
@@ -38,11 +39,15 @@ def preview_version(request: Request, session: Session = Depends(get_session)):
 
 @router.get("/preview/frame.png")
 async def preview_frame(request: Request, session: Session = Depends(get_session)):
-    """Accepts an extra, ignored `v` param so the page can bust the browser cache."""
+    """Accepts an extra, ignored `v` param so the page can bust the browser cache.
+
+    X-Preview-Version names the version the image was rendered for; the page keeps
+    asking while it lags behind the latest /preview/version.
+    """
     params = parse_params(request.query_params)
     try:
-        png = await get_preview_frame(params, version(session, params))
+        png, rendered = await get_preview_frame(params, version(session, params))
     except Exception:
         log.exception("Preview render failed")
         return PlainTextResponse("render failed", status_code=503)
-    return Response(png, media_type="image/png", headers=NO_STORE)
+    return Response(png, media_type="image/png", headers={**NO_STORE, "X-Preview-Version": rendered})

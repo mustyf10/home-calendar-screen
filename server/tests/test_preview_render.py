@@ -5,8 +5,11 @@ import pytest
 from PIL import Image
 from starlette.datastructures import QueryParams
 
-from app.display import render
+from app.display import preview_render, render
 from app.display.preview import parse_params
+from app.heavy import heavy_lock
+
+pytestmark = pytest.mark.usefixtures("fixed_clock")
 
 
 def _png(color: int = 255) -> bytes:
@@ -16,30 +19,46 @@ def _png(color: int = 255) -> bytes:
 
 
 class Rig:
+    """Fake monotonic clock; shooting takes `render_s` and sleeping advances the clock."""
+
     def __init__(self):
         self.t = 0.0
+        self.render_s = 0.0
         self.shots: list[str] = []
+        self.slept: list[float] = []
 
     def now(self) -> float:
         return self.t
 
     async def shoot(self, path: str) -> bytes:
         self.shots.append(path)
+        self.t += self.render_s
         return _png()
 
-    def frame(self, qs: str, ver: str) -> bytes:
-        return asyncio.run(render.get_preview_frame(parse_params(QueryParams(qs)), ver, now=self.now, shoot=self.shoot))
+    async def sleep(self, s: float) -> None:
+        self.slept.append(s)
+        self.t += s
+
+    async def _frame(self, qs, ver):
+        return await preview_render.get_preview_frame(
+            parse_params(QueryParams(qs)), ver, now=self.now, shoot=self.shoot, sleep=self.sleep
+        )
+
+    def frame(self, qs: str, ver: str) -> tuple[bytes, str]:
+        return asyncio.run(self._frame(qs, ver))
 
 
 @pytest.fixture
 def rig(monkeypatch):
-    monkeypatch.setattr(render, "_preview_cache", {})
+    monkeypatch.setattr(preview_render, "_cache", {})
+    monkeypatch.setattr(preview_render, "_last_shot", None)
     return Rig()
 
 
 def test_first_call_shoots_the_preview_query(rig):
-    png = rig.frame("scenario=busy", "v1")
+    png, ver = rig.frame("scenario=busy", "v1")
     assert rig.shots == ["/display?scenario=busy"]
+    assert ver == "v1"
     assert Image.open(io.BytesIO(png)).mode == "1"
 
 
@@ -58,29 +77,64 @@ def test_same_version_is_cached(rig):
 def test_new_version_is_throttled_to_five_seconds(rig):
     first = rig.frame("scenario=busy", "v1")
     rig.t = 2
-    assert rig.frame("scenario=busy", "v2") == first
+    assert rig.frame("scenario=busy", "v2") == first  # old png, old version
     assert len(rig.shots) == 1
     rig.t = 5
-    rig.frame("scenario=busy", "v2")
+    assert rig.frame("scenario=busy", "v2")[1] == "v2"
     assert len(rig.shots) == 2
+
+
+def test_slow_render_then_version_change_catches_up(rig):
+    rig.render_s = 4
+    rig.frame("scenario=busy", "v1")  # finishes at t=4
+    rig.t = 4.5
+    assert rig.frame("scenario=busy", "v2")[1] == "v1"  # throttled: the page sees v1 and retries
+    rig.t = 9
+    assert rig.frame("scenario=busy", "v2")[1] == "v2"
+
+
+def test_heavy_lock_serves_cached_png_with_its_old_version(rig):
+    first_png, _ = rig.frame("scenario=busy", "v1")
+    rig.t = 60
+
+    async def while_locked():
+        async with heavy_lock:
+            return await rig._frame("scenario=busy", "v2")
+
+    assert asyncio.run(while_locked()) == (first_png, "v1")
+    assert len(rig.shots) == 1
+
+
+def test_at_most_one_shoot_every_two_seconds_across_queries(rig):
+    rig.frame("scenario=busy", "v1")  # shot at t=0
+    rig.t = 1
+    rig.frame("scenario=quiet", "v1")  # nothing cached for this query: waits out the gap
+    assert rig.slept == [1] and rig.t == 2 and len(rig.shots) == 2
+    rig.t = 7
+    rig.frame("scenario=busy", "v2")  # shot at t=7
+    rig.t = 8
+    assert rig.frame("scenario=quiet", "v2")[1] == "v1"  # cached entry instead of waiting
+    assert len(rig.shots) == 3 and rig.slept == [1]
 
 
 def test_each_query_has_its_own_entry(rig):
     rig.frame("scenario=busy", "v1")
+    rig.t = 2
     rig.frame("scenario=quiet", "v1")
     assert len(rig.shots) == 2
 
 
 def test_cache_keeps_eight_newest(rig):
     for i in range(10):
-        rig.t = i
+        rig.t = 2 * i
         rig.frame(f"at=2026-10-{10 + i}T09:00", "v")
-    assert len(render._preview_cache) == 8
-    assert "at=2026-10-10T09%3A00" not in render._preview_cache
+    assert len(preview_render._cache) == 8
+    assert "at=2026-10-10T09%3A00" not in preview_render._cache
 
 
 def test_offline_stamp_is_drawn_bottom_left(rig):
-    img = Image.open(io.BytesIO(rig.frame("offline=07:30", "v1")))
+    png, _ = rig.frame("offline=07:30", "v1")
+    img = Image.open(io.BytesIO(png))
     assert img.getpixel((5, 475)) == 0
     assert img.getpixel((795, 5)) == 255
 

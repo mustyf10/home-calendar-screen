@@ -64,24 +64,24 @@ class DisplayModel:
 
 
 @dataclass
-class _Event:
+class Event:
     title: str
     first: date
     last: date  # inclusive
     start: datetime | None  # None for all-day
 
 
-def _span(ev: CalendarEvent, tz) -> _Event:
+def _span(ev: CalendarEvent, tz) -> Event:
     if ev.all_day:
         first = ev.start_date
         last = max(first, ev.end_date - timedelta(days=1)) if ev.end_date else first
-        return _Event(ev.summary, first, last, None)
+        return Event(ev.summary, first, last, None)
     start = datetime.fromisoformat(ev.start_at).astimezone(tz)
     end = datetime.fromisoformat(ev.end_at).astimezone(tz) if ev.end_at else start
     last = end.date()
     if end > start and end.time() == datetime.min.time():
         last -= timedelta(days=1)  # ends at midnight: doesn't cover the next day
-    return _Event(ev.summary, start.date(), max(last, start.date()), start)
+    return Event(ev.summary, start.date(), max(last, start.date()), start)
 
 
 def _heading(d: date, today: date) -> str:
@@ -92,7 +92,7 @@ def _heading(d: date, today: date) -> str:
     return fmt_day(d)
 
 
-def _event_line(ev: _Event, day: date) -> AgendaLine:
+def _event_line(ev: Event, day: date) -> AgendaLine:
     title = ev.title
     if ev.last > ev.first:
         title += f" (until {fmt_day(ev.last)})"
@@ -101,9 +101,9 @@ def _event_line(ev: _Event, day: date) -> AgendaLine:
     return AgendaLine("event", title, f"{ev.start:%H:%M}")
 
 
-def _agenda(events: list[_Event], today: date) -> list[AgendaLine]:
+def _agenda(events: list[Event], today: date) -> list[AgendaLine]:
     horizon_end = today + timedelta(days=HORIZON_DAYS - 1)
-    by_day: dict[date, list[_Event]] = {}
+    by_day: dict[date, list[Event]] = {}
     for ev in events:
         if ev.last < today or ev.first > horizon_end:
             continue
@@ -150,7 +150,7 @@ def _agenda(events: list[_Event], today: date) -> list[AgendaLine]:
     return lines
 
 
-def _month_grid(today: date, events: list[_Event]) -> list[list[DayCell]]:
+def _month_grid(today: date, events: list[Event]) -> list[list[DayCell]]:
     first = today.replace(day=1)
     last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
     grid_start = first - timedelta(days=first.weekday())
@@ -211,7 +211,9 @@ def _utc_naive_to_local(dt: datetime, tz) -> datetime:
     return dt.replace(tzinfo=timezone.utc).astimezone(tz)
 
 
-def _warning(session: Session, now: datetime, uptime: timedelta) -> str | None:
+def warning(session: Session, now: datetime, uptime: timedelta | None = None) -> str | None:
+    if uptime is None:
+        uptime = timedelta(seconds=time.monotonic() - _STARTED)
     warnings = []
     calendars = session.scalars(select(Calendar)).all()
     if not calendars:
@@ -236,18 +238,16 @@ def _warning(session: Session, now: datetime, uptime: timedelta) -> str | None:
 
 @dataclass
 class DisplayInputs:
-    events: list[_Event]
+    events: list[Event]
     menu: dict[date, str | None]
     warning: str | None
 
 
 def load_inputs(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayInputs:
-    if uptime is None:
-        uptime = timedelta(seconds=time.monotonic() - _STARTED)
     return DisplayInputs(
         events=[_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))],
         menu=_menu(session, now.date()),
-        warning=_warning(session, now, uptime),
+        warning=warning(session, now, uptime),
     )
 
 
@@ -260,7 +260,3 @@ def compose(inputs: DisplayInputs, now: datetime) -> DisplayModel:
         dinners=_dinners(inputs.menu, today),
         warning=inputs.warning,
     )
-
-
-def build_display(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayModel:
-    return compose(load_inputs(session, now, uptime), now)
