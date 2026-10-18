@@ -3,9 +3,9 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.claude import NoResult, call_json
 from app.config import config
 from app.ingest.images import llm_image_block
-from app.ingest.llm import NoToolUse, call_tool
 from app.models import ImportBatch, IngestJob
 
 log = logging.getLogger(__name__)
@@ -17,27 +17,25 @@ GROUP_SYSTEM = (
     "Give each recipe a short English title_hint."
 )
 
-GROUP_PAGES_TOOL = {
-    "name": "group_pages",
-    "description": "Record which pages belong to which recipe.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "recipes": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "pages": {"type": "array", "items": {"type": "integer"}},
-                        "title_hint": {"type": "string"},
-                    },
-                    "required": ["pages", "title_hint"],
+GROUPS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "recipes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "pages": {"type": "array", "items": {"type": "integer"}},
+                    "title_hint": {"type": "string"},
                 },
+                "required": ["pages", "title_hint"],
+                "additionalProperties": False,
             },
-            "unreadable_pages": {"type": "array", "items": {"type": "integer"}},
         },
-        "required": ["recipes", "unreadable_pages"],
+        "unreadable_pages": {"type": "array", "items": {"type": "integer"}},
     },
+    "required": ["recipes", "unreadable_pages"],
+    "additionalProperties": False,
 }
 
 
@@ -91,8 +89,8 @@ def process_batch(session: Session, batch: ImportBatch) -> None:
         content.append({"type": "text", "text": f"Page {i}"})
         content.append(llm_image_block(config.media_dir / rel, 1568))
     try:
-        raw = call_tool(GROUP_SYSTEM, content, GROUP_PAGES_TOOL, timeout=300)
-    except (anthropic.APIError, NoToolUse) as e:
+        raw = call_json(GROUP_SYSTEM, content, GROUPS_SCHEMA, timeout=300)
+    except (anthropic.APIError, NoResult) as e:
         log.warning("batch %s grouping failed: %s", batch.id, e)
         _fail(session, batch, f"Grouping failed: {e}")
         return

@@ -1,8 +1,9 @@
-"""Claude calls: recipe extraction, tag suggestion, and the shared forced-tool helper."""
+"""Claude calls: recipe extraction and tag suggestion."""
 import json
 import logging
 from pathlib import Path
 
+from app.claude import NoResult, call_json
 from app.config import config
 from app.ingest.images import llm_image_block
 from app.models import DISH_TYPES
@@ -16,7 +17,7 @@ TAG_RULES = """Tagging rules:
 - Then add the main ingredients (at most 4), the dish name or style, and the cuisine.
 - Reuse an existing tag whenever one means the same thing. Existing tags (most used first): {existing}"""
 
-EXTRACT_SYSTEM = """Extract one recipe from the material provided and save it with the save_recipe tool.
+EXTRACT_SYSTEM = """Extract one recipe from the material provided.
 Classify type as one of:
 - dinner: a main meal
 - snack: snacks and savouries such as samosas or pakoras
@@ -35,62 +36,33 @@ PAPER_NOTE = (
     "Transcribe carefully and write [illegible] for anything unreadable."
 )
 
-SAVE_RECIPE_TOOL = {
-    "name": "save_recipe",
-    "description": "Save the extracted recipe.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string"},
-            "type": {"type": "string", "enum": list(DISH_TYPES)},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "description": {"type": "string"},
-            "ingredients": {"type": "array", "items": {"type": "string"}},
-            "steps": {"type": "array", "items": {"type": "string"}},
-            "servings": {"type": ["integer", "null"]},
-            "total_minutes": {"type": ["integer", "null"]},
-            "is_recipe": {"type": "boolean"},
-            "note": {"type": "string"},
-        },
-        "required": ["title", "type", "tags", "description", "ingredients", "steps", "is_recipe"],
+RECIPE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "type": {"type": "string", "enum": list(DISH_TYPES)},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "description": {"type": "string"},
+        "ingredients": {"type": "array", "items": {"type": "string"}},
+        "steps": {"type": "array", "items": {"type": "string"}},
+        "servings": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        "total_minutes": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+        "is_recipe": {"type": "boolean"},
+        "note": {"type": "string"},
     },
+    "required": ["title", "type", "tags", "description", "ingredients", "steps", "is_recipe"],
+    "additionalProperties": False,
 }
 
-SAVE_TAGS_TOOL = {
-    "name": "save_tags",
-    "description": "Save the tags for this recipe.",
-    "input_schema": {
-        "type": "object",
-        "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
-        "required": ["tags"],
-    },
+TAGS_SCHEMA = {
+    "type": "object",
+    "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+    "required": ["tags"],
+    "additionalProperties": False,
 }
 
 MAX_IMAGES = 8
 MAX_PAPER_PAGES = 20
-
-
-class NoToolUse(Exception):
-    pass
-
-
-def call_tool(system: str, content: list[dict], tool: dict, *, timeout: float, max_tokens: int = 4096) -> dict:
-    """One forced-tool Claude call; returns the first tool_use input. Raises anthropic.APIError or NoToolUse."""
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key, timeout=timeout)
-    msg = client.messages.create(
-        model=config.llm_model,
-        max_tokens=max_tokens,
-        system=system,
-        tools=[tool],
-        tool_choice={"type": "tool", "name": tool["name"]},
-        messages=[{"role": "user", "content": content}],
-    )
-    for block in msg.content:
-        if block.type == "tool_use":
-            return dict(block.input)
-    raise NoToolUse(f"no {tool['name']} result returned")
 
 
 def tag_rules(existing_tags: list[str]) -> str:
@@ -179,8 +151,8 @@ def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -
         blocks = [llm_image_block(p, 1024) for p in image_paths[:MAX_IMAGES]]
     content = [{"type": "text", "text": _source_text(raw, user_text)}, *blocks]
     try:
-        out = call_tool(system, content, SAVE_RECIPE_TOOL, timeout=120)
-    except (anthropic.APIError, NoToolUse) as e:
+        out = call_json(system, content, RECIPE_SCHEMA, timeout=180)
+    except (anthropic.APIError, NoResult) as e:
         log.warning("extraction failed: %s", e)
         return fallback_extracted(raw, user_text, f"AI extraction failed: {e}")
     note = str(out.get("note") or "").strip()
@@ -201,7 +173,7 @@ def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -
 
 
 def suggest_tags(title: str, type: str, description: str, ingredients: list[str], existing_tags: list[str]) -> list[str]:
-    """Raises on a missing key, an API error, or no tool result; the caller flashes the message."""
+    """Raises on a missing key, an API error, or an unusable answer; the caller flashes the message."""
     if not config.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
     text = "\n\n".join(
@@ -214,5 +186,5 @@ def suggest_tags(title: str, type: str, description: str, ingredients: list[str]
         )
         if value
     )
-    out = call_tool(tag_rules(existing_tags), [{"type": "text", "text": text}], SAVE_TAGS_TOOL, timeout=30, max_tokens=512)
+    out = call_json(tag_rules(existing_tags), [{"type": "text", "text": text}], TAGS_SCHEMA, timeout=60, max_tokens=4096)
     return clean_tags(out.get("tags"), existing_tags)

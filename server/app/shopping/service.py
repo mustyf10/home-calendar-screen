@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import settings_store
+from app.claude import NoResult, call_json
 from app.config import config
 from app.models import Dish, MenuEntry, ShoppingList, utcnow
 
@@ -15,38 +16,37 @@ NO_KEY_MESSAGE = "Shopping list needs ANTHROPIC_API_KEY"
 # Serialises builds so a manual rebuild and the background loop never call Claude together.
 _build_lock = threading.Lock()
 
-TOOL = {
-    "name": "shopping_list",
-    "description": "Save the combined shopping list.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "aisles": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "enum": list(AISLES)},
+LIST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "aisles": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "enum": list(AISLES)},
+                    "items": {
+                        "type": "array",
                         "items": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "item": {"type": "string"},
-                                    "quantity": {"type": "string"},
-                                    "for": {"type": "array", "items": {"type": "string"}},
-                                },
-                                "required": ["item", "quantity", "for"],
+                            "type": "object",
+                            "properties": {
+                                "item": {"type": "string"},
+                                "quantity": {"type": "string"},
+                                "for": {"type": "array", "items": {"type": "string"}},
                             },
+                            "required": ["item", "quantity", "for"],
+                            "additionalProperties": False,
                         },
                     },
-                    "required": ["name", "items"],
                 },
+                "required": ["name", "items"],
+                "additionalProperties": False,
             },
-            "check_you_have": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["aisles", "check_you_have"],
+        "check_you_have": {"type": "array", "items": {"type": "string"}},
     },
+    "required": ["aisles", "check_you_have"],
+    "additionalProperties": False,
 }
 
 
@@ -107,22 +107,11 @@ def _call_claude(dinners: list[Dish], pantry: str) -> dict:
     text = "\n\n".join(
         f"## {d.title}\n" + "\n".join(f"- {i}" for i in d.ingredients) for d in dinners
     )
-    client = anthropic.Anthropic(api_key=config.anthropic_api_key, timeout=120)
+    content = [{"type": "text", "text": text}]
     try:
-        resp = client.messages.create(
-            model=config.llm_model,
-            max_tokens=4096,
-            system=_system_prompt(pantry),
-            tools=[TOOL],
-            tool_choice={"type": "tool", "name": "shopping_list"},
-            messages=[{"role": "user", "content": text}],
-        )
-    except anthropic.APIError as e:
+        return call_json(_system_prompt(pantry), content, LIST_SCHEMA, timeout=180)
+    except (anthropic.APIError, NoResult) as e:
         raise ShoppingError(f"Couldn't build the list: {e}") from e
-    block = next((b for b in resp.content if b.type == "tool_use"), None)
-    if block is None:
-        raise ShoppingError("Couldn't build the list: no list returned")
-    return block.input
 
 
 def _order_aisles(raw_aisles: list) -> list[dict]:

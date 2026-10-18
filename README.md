@@ -25,7 +25,7 @@ The server (`server/`, FastAPI + SQLite) renders the panel image. The display cl
    TZ=Europe/London
    ANTHROPIC_API_KEY=sk-...
    # WEATHER_API_KEY=...        # optional, enables Settings → Weather
-   # LLM_MODEL=claude-sonnet-5-5
+   # LLM_MODEL=claude-sonnet-5-5  # any Claude model with structured outputs
    ```
 
 2. Create the data and backup directories. The container runs as uid 1000 / gid 100:
@@ -65,7 +65,7 @@ export DATA_DIR=/tmp/hcs-data BACKUP_DIR=/tmp/hcs-backups ANTHROPIC_API_KEY=sk-.
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`), `WEATHER_API_KEY`.
+Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`; an override must support [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)), `WEATHER_API_KEY`.
 
 Screen preview: `/preview` (linked from Settings) shows the panel's HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning, offline-stamp and weather-state controls live in the URL and never affect the real panel.
 
