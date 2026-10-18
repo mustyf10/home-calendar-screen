@@ -115,3 +115,21 @@ def test_duplicate_clock_label_keeps_abbreviation_inside_weather_label():
     html = screen(model)
     assert 'class="weather-label weather-label-long"' in html
     assert "02:00 CEST" in html and "Sun 25" in html
+
+
+def test_rendering_and_version_polling_never_contact_the_provider(session, monkeypatch):
+    import httpx
+    from app.display.preview import version
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("render must not make upstream requests")
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", forbidden)
+    monkeypatch.setattr(httpx.Client, "__init__", forbidden)
+    weather = sample_weather(NOW, NOW, "sample")
+    settings_store.put(session, "weather.config", json.dumps(weather.config))
+    settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    screen(compose(load_inputs(session, NOW), NOW, actual_now=NOW))
+    version(session, parse_params(QueryParams("")))
+    version(session, parse_params(QueryParams("scenario=busy&weather=snow")))

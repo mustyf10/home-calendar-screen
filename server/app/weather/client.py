@@ -1,4 +1,5 @@
 """WeatherAPI boundary: bounded responses and safe literal failures only."""
+import asyncio
 import json
 import logging
 from datetime import date, datetime, timezone
@@ -89,7 +90,8 @@ async def request_json(path: str, key: str | None, params: dict, *, transport=No
     if not key:
         raise WeatherError("Weather API key is missing")
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False, transport=transport) as client:
+        # httpx's timeout is per phase; the overall deadline stops a slow trickle holding the loop.
+        async with asyncio.timeout(15), httpx.AsyncClient(timeout=15, follow_redirects=False, transport=transport) as client:
             async with client.stream("GET", ORIGIN + path, params={**params, "key": key}) as response:
                 http_error = "Weather API quota exceeded" if response.status_code == 429 else "Weather API key is invalid" if response.status_code in (401, 403) else UNAVAILABLE
                 body = bytearray()
@@ -108,7 +110,7 @@ async def request_json(path: str, key: str | None, params: dict, *, transport=No
                 if not 200 <= response.status_code < 300:
                     raise WeatherError(http_error)
                 return payload
-    except httpx.HTTPError:
+    except (httpx.HTTPError, httpx.InvalidURL, UnicodeError, TimeoutError):
         raise WeatherError(UNAVAILABLE) from None
 
 
@@ -116,10 +118,15 @@ async def search_locations(query: str, key: str | None, *, transport=None) -> li
     payload = await request_json("/v1/search.json", key, {"q": query}, transport=transport)
     if not isinstance(payload, list):
         raise WeatherError(INVALID)
-    try:
-        return [validate_location(row) for row in payload]
-    except WeatherError:
-        raise WeatherError(INVALID) from None
+    found = []
+    for row in payload:
+        try:
+            found.append(validate_location(row))
+        except WeatherError:
+            continue  # One odd provider row must not hide the others.
+    if payload and not found:
+        raise WeatherError(INVALID)
+    return found
 
 
 async def fetch_forecast(location: dict, key: str | None, now: datetime, *, transport=None) -> dict:

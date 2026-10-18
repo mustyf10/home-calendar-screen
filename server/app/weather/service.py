@@ -127,22 +127,49 @@ def settings_context(session) -> dict:
     return {"config": prefs, "key_configured": bool(config.weather_api_key), "error": error, "last_error": status["last_error"], "last_success": snapshot.get("fetched_at") if snapshot and timestamp(snapshot.get("fetched_at")) else None, "timezone": snapshot.get("timezone") if snapshot and isinstance(snapshot.get("timezone"), str) else None}
 
 
+def _due(prefs: dict, status: dict, key: str | None, now: datetime) -> bool:
+    if not prefs["enabled"] or not prefs["location"] or not key:
+        return False
+    attempted = timestamp(status["last_attempt_at"])
+    return not attempted or (now - attempted.astimezone(timezone.utc)).total_seconds() >= 1800
+
+
+def _claim_attempt(session_factory, key: str | None, now: datetime):
+    """Marks an attempt and returns (generation, location_key, location), or None when nothing is due."""
+    # Plain read first: the 5-second tick must not take the SQLite writer lock when nothing is due.
+    with session_factory() as session:
+        prefs = load_config(session)
+        if not _due(prefs, read_status(session, prefs), key, now):
+            return None
+    with write_session(session_factory) as session:
+        prefs = load_config(session)
+        status = read_status(session, prefs)
+        if not _due(prefs, status, key, now):
+            return None
+        status["last_attempt_at"] = now.isoformat()
+        put_json(session, "weather.status", status)
+        return prefs["fetch_generation"], location_key(prefs["location"]), prefs["location"]
+
+
+def _complete_attempt(session_factory, generation: int, captured_key: str, snapshot: dict | None, error: str | None) -> None:
+    with write_session(session_factory) as session:
+        current = load_config(session)
+        if not current["enabled"] or current["fetch_generation"] != generation or not current["location"] or location_key(current["location"]) != captured_key:
+            return
+        status = read_status(session, current)
+        status["last_error"] = error
+        if snapshot is not None:
+            put_json(session, "weather.snapshot", snapshot)
+        put_json(session, "weather.status", status)
+
+
 async def run_once(*, session_factory=SessionLocal, now: datetime | None = None, api_key: str | None = None, provider=fetch_forecast) -> bool:
     now = (now or clock.now()).astimezone(timezone.utc)
     key = api_key if api_key is not None else config.weather_api_key
-    with write_session(session_factory) as session:
-        prefs = load_config(session)
-        if not prefs["enabled"] or not prefs["location"] or not key:
-            return False
-        status = read_status(session, prefs)
-        attempted = timestamp(status["last_attempt_at"])
-        if attempted and (now - attempted.astimezone(timezone.utc)).total_seconds() < 1800:
-            return False
-        status["last_attempt_at"] = now.isoformat()
-        put_json(session, "weather.status", status)
-        captured_generation = prefs["fetch_generation"]
-        captured_key = location_key(prefs["location"])
-        selected = prefs["location"]
+    claimed = await asyncio.to_thread(_claim_attempt, session_factory, key, now)
+    if claimed is None:
+        return False
+    generation, captured_key, selected = claimed
     snapshot, error = None, None
     try:
         snapshot = await provider(selected, key, now)
@@ -150,15 +177,7 @@ async def run_once(*, session_factory=SessionLocal, now: datetime | None = None,
         error = str(exc) if str(exc) in SAFE_ERRORS else UNAVAILABLE
     except Exception:
         error = UNAVAILABLE
-    with write_session(session_factory) as session:
-        current = load_config(session)
-        if not current["enabled"] or current["fetch_generation"] != captured_generation or not current["location"] or location_key(current["location"]) != captured_key:
-            return True
-        status = read_status(session, current)
-        status["last_error"] = error
-        if snapshot is not None:
-            put_json(session, "weather.snapshot", snapshot)
-        put_json(session, "weather.status", status)
+    await asyncio.to_thread(_complete_attempt, session_factory, generation, captured_key, snapshot, error)
     return True
 
 

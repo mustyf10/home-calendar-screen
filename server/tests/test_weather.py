@@ -173,7 +173,7 @@ def test_timeouts_redirects_and_invalid_json_never_expose_key():
 
 
 @pytest.mark.parametrize("raw,expected", [("0", 0), (0, 0), (None, None), ("bad", None), (101, None), (-1, None), (True, None), ("50.5", 50.5)])
-def test_probability_values_are_not_clamped(raw, expected):
+def test_out_of_range_and_invalid_probabilities_are_unavailable_not_clamped(raw, expected):
     from app.weather.types import probability
     assert probability(raw) == expected
 
@@ -227,3 +227,35 @@ def test_oversized_cache_timezone_is_unavailable_without_exception():
     inputs, now = weather_inputs()
     inputs.snapshot["timezone"] = "x" * 1000
     assert select_weather(inputs, now, actual_now=now)["unavailable"]
+
+
+def test_one_malformed_search_row_does_not_hide_the_others():
+    from app.weather.client import search_locations
+    rows = [{"name": "London", "region": "England", "country": "UK", "lat": 51.5, "lon": -0.1}, {"name": "Broken", "lat": "x"}]
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=rows))
+    assert [r["name"] for r in asyncio.run(search_locations("lon", "k", transport=transport))] == ["London"]
+
+
+def test_malformed_query_is_a_safe_unavailable_error_not_a_crash():
+    from app.weather.client import search_locations
+    from app.weather.types import WeatherError
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[]))
+    with pytest.raises(WeatherError, match="Weather service is unavailable"):
+        asyncio.run(search_locations("\ud800", "k", transport=transport))
+
+
+def test_slow_trickling_response_hits_the_overall_deadline(monkeypatch):
+    from app.weather import client
+    from app.weather.types import WeatherError
+
+    class Trickle(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            while True:
+                await asyncio.sleep(0.01)
+                yield b" "
+
+    real_timeout = asyncio.timeout
+    monkeypatch.setattr(client.asyncio, "timeout", lambda seconds: real_timeout(0.1))
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=Trickle()))
+    with pytest.raises(WeatherError, match="Weather service is unavailable"):
+        asyncio.run(client.search_locations("London", "k", transport=transport))
