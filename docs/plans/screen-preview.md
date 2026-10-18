@@ -8,7 +8,7 @@ Confirmed decisions:
 | # | Decision |
 |---|---|
 | Content | Side by side, stacked on narrow screens. Left: the live HTML (`/display` in an iframe). Right: the 1-bit PNG |
-| Where | `/preview`, in the app, local and on kitchen.home. Linked **from Settings only** |
+| Where | `/preview`, in the app, local and on the deployed server. Linked **from Settings only** |
 | Live triggers | Data changes (menu, recipes, calendar sync) and code changes (`display.html`, CSS, `.py` under `uvicorn --reload`) |
 | Freshness | HTML side refreshes as soon as the version changes. PNG side re-renders **only when the version changed**, at most once per 5 s per view. The panel's 60 s cache/ETag is untouched |
 | Transport | Poll `GET /preview/version?<params>` every 2 s (plain text) |

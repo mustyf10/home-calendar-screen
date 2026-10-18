@@ -1,12 +1,54 @@
 # home-calendar-screen
 
-A household kitchen app:
+A self-hosted household kitchen app:
 
 - **Recipe library**: save dinners by hand or import them from links, screenshots and paper scans (Claude extracts the recipe).
-- **Weekly dinner menu** (Saturday–Friday) with a "roll the dice" suggester and a shopping list.
-- **E-ink display**: a Raspberry Pi 3B with a Waveshare 7.5" V2 (800×480, black/white) shows the date, a month grid, upcoming Google Calendar events (secret ICS URLs) and this week's dinners.
+- **Weekly dinner menu** (Saturday–Friday) with a "roll the dice" suggester and an automatically rebuilt shopping list.
+- **E-ink display**: a Raspberry Pi with a Waveshare 7.5" V2 panel (800×480, black/white) shows the date, a month grid, upcoming Google Calendar events (secret ICS URLs), this week's dinners and, optionally, a weather forecast.
 
-The server (`server/`, FastAPI + SQLite) runs as a Docker container on the homelab Pi 4 at `https://kitchen.home`. It renders the panel image; the Pi 3B (`display-client/`) only pulls `/display/frame.png` every 5 minutes and redraws when the ETag changes. No login: LAN and Tailscale only.
+The server (`server/`, FastAPI + SQLite) renders the panel image. The display client (`display-client/`) is deliberately thin: it pulls `/display/frame.png` every 5 minutes and redraws only when the image changes.
+
+**There is no login.** Run it on a private network (home LAN, VPN or tailnet) and never expose it to the internet.
+
+## Requirements
+
+- A machine to run the server in Docker (any Linux host; the published image is `arm64`, see [Release](#release) for other architectures).
+- An [Anthropic API key](https://console.anthropic.com/) for recipe import and shopping lists.
+- Optional: a [WeatherAPI.com](https://www.weatherapi.com/) key for the forecast strip.
+- Optional: a Raspberry Pi (3B or newer) with a Waveshare 7.5" V2 e-paper HAT for the physical display. Without it, `/preview` shows exactly what the panel would show.
+
+## Quick start (Docker Compose)
+
+1. Copy `deploy/compose.yaml` to a directory of your choice and create `.env` next to it:
+
+   ```sh
+   TZ=Europe/London
+   ANTHROPIC_API_KEY=sk-...
+   # WEATHER_API_KEY=...        # optional, enables Settings → Weather
+   # LLM_MODEL=claude-sonnet-5-5
+   ```
+
+2. Create the data and backup directories. The container runs as uid 1000 / gid 100:
+
+   ```sh
+   mkdir -p data backups && sudo chown 1000:100 data backups
+   ```
+
+3. Start it:
+
+   ```sh
+   docker compose up -d
+   ```
+
+4. Open `http://<server>:8000`. Check health with `curl http://<server>:8000/healthz` (returns `{"ok":true}`).
+
+Migrations run automatically on start. To upgrade, change the `image:` tag and run `docker compose up -d`.
+
+To serve it over HTTPS under a hostname of your choice, put any reverse proxy in front of port 8000 and remove the `ports:` mapping. Keep it private (see above).
+
+### Backups
+
+Backups run nightly at 03:30 into `/backups/<date>/` inside the container (mounted from `./backups`), keeping 14 days.
 
 ## Local development
 
@@ -23,106 +65,66 @@ export DATA_DIR=/tmp/hcs-data BACKUP_DIR=/tmp/hcs-backups ANTHROPIC_API_KEY=sk-.
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`).
+Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`), `WEATHER_API_KEY`.
 
-Screen preview: http://127.0.0.1:8000/preview (linked from Settings) shows the panel's HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning and offline-stamp controls live in the URL and never affect the real panel.
+Screen preview: `/preview` (linked from Settings) shows the panel's HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning, offline-stamp and weather-state controls live in the URL and never affect the real panel.
 
-Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`.
-Dry-run the client against a local server:
+Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`. Dry-run the client against a local server:
 
 ```sh
 python3 display-client/frame.py --url http://localhost:8000/display/frame.png \
   --state-dir /tmp/fstate --quiet-hours off --dry-run --out /tmp/panel.png
 ```
 
-## Docker
-
-```sh
-docker build -t home-calendar server
-docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-... \
-  -v "$PWD/.data:/data" home-calendar
-```
-
-The container runs as uid 1000 / gid 100, applies migrations on start and serves on port 8000.
-
 ## Weather (optional)
 
-Set `WEATHER_API_KEY` in the server environment (or the Compose `.env` file, then recreate the container). Obtain a key from [WeatherAPI.com](https://www.weatherapi.com/); it stays on the server, not in browser settings. Weather is disabled by default and requires no database migration.
+Set `WEATHER_API_KEY` in the server environment and recreate the container. Weather is disabled by default and needs no database migration. The key stays on the server and is never shown in the browser.
 
-In **Settings → Weather**, search for a location, explicitly select the correct region/country, then enable weather. Selecting a location alone does not enable it. Choose three daily forecasts or four sampled hours at fixed two-/three-hour boundaries, in Celsius or Fahrenheit. Weather uses the location's timezone; calendar and dinners keep the application's `TZ`. Subdaily rain/snow probabilities describe the sampled hour, not the whole interval.
+In **Settings → Weather**, search for a location, select the exact result (region and country are shown), then enable weather. Selecting a location alone does not enable it. Choose three daily forecasts or four sampled hours at fixed 2- or 3-hour boundaries, in Celsius or Fahrenheit. The forecast uses the location's timezone; the calendar and dinners keep the server's `TZ`. Subdaily rain/snow percentages describe the sampled hour, not the whole interval.
 
-The server schedules a fetch within five seconds of enabling and every 30 minutes thereafter, including after failures. Changing mode/units or opening the display/preview uses the cache without another provider call. Last-good data is marked stale after one hour and hidden after six hours or beyond forecast coverage.
+The server fetches within a few seconds of enabling and every 30 minutes after, including after failures. Changing mode or units, opening the display and using the preview all read the cache without another provider call. Last-good data is marked stale after one hour and hidden after six hours or beyond forecast coverage.
 
-The screen preview has sample, snow, missing-value, stale, unavailable and off weather controls; they never change the household settings or real panel. The existing offline banner still takes precedence over lower weather cells; provider credit sits above it. The Pi display client needs no weather key or update.
+The offline banner (below) takes precedence over the lowest-left forecast cells; the provider credit sits above it. The display client needs no weather key.
 
+## Display client (Raspberry Pi + Waveshare 7.5" V2)
+
+1. Flash Raspberry Pi OS Lite 64-bit, enable SSH, attach the HAT.
+2. Copy `display-client/` to the Pi with `rsync -rL` or `scp -r` (`stamp.py` is a symlink to `server/app/display/stamp.py` and must arrive as a real file), then run it from that directory:
+
+   ```sh
+   sudo ./install.sh                         # keeps the Pi's timezone
+   sudo TIMEZONE=Europe/Paris ./install.sh   # or set it explicitly
+   ```
+
+   It is safe to re-run. It installs packages, enables SPI, fetches a pinned Waveshare driver into `/opt/home-calendar-frame/`, creates `/etc/home-calendar-frame/frame.env` and enables a 5-minute systemd timer.
+3. Edit `/etc/home-calendar-frame/frame.env`: set `FRAME_URL` to your server's `/display/frame.png`. If you serve HTTPS with a private certificate authority, copy its root certificate to the Pi and set `CA_FILE` to its path; leave `CA_FILE` empty otherwise.
+4. Reboot (picks up SPI and group changes), then `sudo systemctl start home-calendar-frame.service` and `journalctl -u home-calendar-frame -n 20`.
+
+Behaviour: no redraws during `QUIET_HOURS` (default `23:00-06:00`, `off` disables). If the server is unreachable for 60 minutes, the last frame is redrawn with an "Offline since HH:MM" box in the bottom-left corner; the next successful fetch redraws normally. State lives in `/var/lib/home-calendar-frame`. After updating the client code, re-run `install.sh`.
 
 ## Release
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: server and display-client tests, then an arm64 image build pushed to `ghcr.io/mustyf10/home-calendar-screen:vX.Y.Z`.
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: server and display-client tests, then an `arm64` image build pushed to `ghcr.io/<owner>/home-calendar-screen:vX.Y.Z`.
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag v1.2.3 && git push origin v1.2.3
 ```
 
-After the first release, make the package public (GitHub → Packages → home-calendar-screen → Package settings → Change visibility) and check with `docker logout ghcr.io && docker pull ghcr.io/mustyf10/home-calendar-screen:v0.1.0`.
-
-To upgrade, bump the `image:` tag in `/compose/home-calendar/compose.yaml` (or in Dockge) and run `sudo docker compose up -d`. diun announces new tags.
-
-## Pi 4 (server) one-time setup
-
-On `pi@192.168.1.4`:
-
-1. Data and backup dirs:
-   ```sh
-   sudo install -d -o 1000 -g 100 /appdata/home-calendar
-   sudo install -d -o 1000 -g 100 /srv/mergerfs/pool1/backups/home-calendar
-   ```
-2. `sudo mkdir /compose/home-calendar` and copy in `deploy/compose.yaml`.
-3. Create `/compose/home-calendar/.env`:
-   ```
-   TZ=Europe/London
-   ANTHROPIC_API_KEY=sk-...
-   ```
-4. Add `kitchen.home home-calendar:8000` under `# Utilities` in the `*.home` map of `/compose/caddy-cloudflare/conf/Caddyfile`, then `sudo docker exec -w /etc/caddy caddy caddy reload`.
-5. Add DNS: read `sudo pihole-FTL --config dns.hosts`, then write it back with the new entry appended:
-   `sudo pihole-FTL --config dns.hosts '[ …existing entries…, "192.168.1.4 kitchen.home" ]'`.
-6. `cd /compose/home-calendar && sudo docker compose up -d`.
-
-Check: `sudo docker ps | grep home-calendar` shows `healthy`, and `curl -sk --resolve kitchen.home:443:127.0.0.1 https://kitchen.home/healthz` returns `{"ok":true}`.
-
-Backups run nightly at 03:30 into `/srv/mergerfs/pool1/backups/home-calendar/<date>/` (14 days kept).
-
-If `kitchen.home` doesn't resolve over Tailscale, add `192.168.1.4` as a split-DNS nameserver for `home` in the Tailscale admin console.
-
-## Pi 3B (display) install
-
-1. Flash Raspberry Pi OS Lite 64-bit, enable SSH, attach the Waveshare HAT.
-2. Copy `display-client/` to the Pi (`scp -r` or `rsync -rL`: `stamp.py` is a symlink to `server/app/display/stamp.py` and must arrive as a file) and run `sudo ./install.sh` in it (idempotent). It installs packages, enables SPI, fetches the pinned Waveshare driver into `/opt/home-calendar-frame/`, creates `/etc/home-calendar-frame/frame.env` and enables the 5-minute timer.
-3. Copy Caddy's root CA (from your laptop):
-   ```sh
-   ssh pi@192.168.1.4 sudo cat /appdata/caddy/data/caddy/pki/authorities/local/root.crt > caddy-root.crt
-   scp caddy-root.crt <pi3b>:/tmp/
-   ssh <pi3b> sudo install -m 644 /tmp/caddy-root.crt /etc/home-calendar-frame/caddy-root.crt
-   ```
-4. Reboot (picks up SPI and group changes), then `sudo systemctl start home-calendar-frame.service` and `journalctl -u home-calendar-frame -n 20`.
-
-Behaviour: no redraws during `QUIET_HOURS` (default `23:00-06:00`, `off` disables). If the server is unreachable for 60 minutes, the last frame is redrawn with an "Offline since HH:MM" box in the bottom-left corner; the next successful fetch redraws normally. State lives in `/var/lib/home-calendar-frame`.
-
-## Trusting `https://kitchen.home` on phones
-
-Caddy signs `*.home` with its own local CA. Get the root certificate once:
+If you fork the project, change the image name and source label in the workflow and the `image:` in `deploy/compose.yaml`. After the first release, make the package public (GitHub → Packages → Package settings → Change visibility) so servers can pull it without logging in. For another architecture, change `platforms:` in the workflow or build locally:
 
 ```sh
-ssh pi@192.168.1.4 sudo cat /appdata/caddy/data/caddy/pki/authorities/local/root.crt > caddy-root.crt
+docker build -t home-calendar server
+docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-... -v "$PWD/.data:/data" home-calendar
 ```
 
-Send `caddy-root.crt` to the phone (AirDrop, email or a file share).
+## Trusting a private HTTPS certificate on phones
 
-**iPhone / iPad**
-1. Open the file → "Profile Downloaded".
-2. Settings → General → VPN & Device Management → the Caddy profile → Install.
-3. Settings → General → About → Certificate Trust Settings → turn on full trust for "Caddy Local Authority".
+Only needed if you front the app with a private certificate authority. Send the CA's root certificate to the phone, then:
 
-**Android**
-1. Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate (wording varies by vendor).
-2. Pick `caddy-root.crt` and confirm. Chrome trusts it straight away; Firefox needs "Use third party CA certificates" enabled in its secret settings.
+**iPhone / iPad**: open the file → "Profile Downloaded"; Settings → General → VPN & Device Management → install it; Settings → General → About → Certificate Trust Settings → enable full trust.
+
+**Android**: Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate (wording varies by vendor). Chrome trusts it straight away; Firefox needs "Use third party CA certificates" enabled in its secret settings.
+
+## License
+
+[MIT](LICENSE).

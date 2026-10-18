@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install the kitchen e-ink frame client on Raspberry Pi OS Lite 64-bit.
+# Install the e-ink frame client on Raspberry Pi OS Lite 64-bit.
 # Run from this directory: sudo ./install.sh   (safe to re-run)
+# Optionally: sudo TIMEZONE=Europe/Paris ./install.sh   (otherwise the Pi's timezone is kept)
 set -euo pipefail
 
 if [[ $EUID -ne 0 || -z "${SUDO_USER:-}" || "$SUDO_USER" == root ]]; then
@@ -17,7 +18,9 @@ epd_base=https://raw.githubusercontent.com/waveshareteam/e-Paper/a794fbc39656b0f
 apt-get update
 apt-get install -y python3-pil python3-spidev python3-gpiozero python3-lgpio fonts-dejavu-core curl
 raspi-config nonint do_spi 0
-timedatectl set-timezone Europe/London
+if [[ -n "${TIMEZONE:-}" ]]; then
+  timedatectl set-timezone "$TIMEZONE"
+fi
 
 install -d "$opt/waveshare_epd"
 for f in __init__.py epdconfig.py epd7in5_V2.py; do
@@ -39,6 +42,4 @@ install -m 644 "$here/home-calendar-frame.timer" /etc/systemd/system/home-calend
 systemctl daemon-reload
 systemctl enable --now home-calendar-frame.timer
 
-if [[ ! -f "$etc/caddy-root.crt" ]]; then
-  echo "Next: copy Caddy's root CA to $etc/caddy-root.crt (see README)."
-fi
+echo "Next: edit $etc/frame.env and set FRAME_URL (see README)."

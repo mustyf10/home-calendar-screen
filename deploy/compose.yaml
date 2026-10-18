@@ -1,30 +1,23 @@
 services:
   home-calendar:
-    image: ghcr.io/mustyf10/home-calendar-screen:v0.1.0
+    image: ghcr.io/mustyf10/home-calendar-screen:v0.3.0
     container_name: home-calendar
     init: true
-    restart: unless-stopped
+    env_file: .env
     environment:
-      - TZ=${TZ}
+      - TZ=${TZ:-Europe/London}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - WEATHER_API_KEY=${WEATHER_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-claude-sonnet-5-5}
+    ports:
+      - "8000:8000"   # no login: keep this on a private network
     volumes:
-      - /appdata/home-calendar:/data
-      - /srv/mergerfs/pool1/backups/home-calendar:/backups
-    networks:
-      - caddy-proxy
+      - ./data:/data
+      - ./backups:/backups
     mem_limit: 1536m
-    labels:
-      - autoheal=true
-      - diun.watch_repo=true
-      - 'diun.include_tags=^v\d+\.\d+\.\d+$$'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=5)"]
       interval: 1m
       timeout: 10s
       retries: 3
       start_period: 60s
-networks:
-  caddy-proxy:
-    external: true
