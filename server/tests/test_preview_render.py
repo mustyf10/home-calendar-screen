@@ -157,3 +157,14 @@ def test_panel_cache_untouched(rig):
     before = dict(render._cache)
     rig.frame("scenario=busy", "v1")
     assert render._cache == before
+
+
+def test_weather_overrides_have_isolated_preview_cache_entries_and_leave_panel_untouched(rig):
+    before = dict(render._cache)
+    sample = rig.frame("scenario=busy&weather=sample", "v1")
+    rig.t = 2
+    rig.frame("scenario=busy&weather=snow", "v1")
+    rig.t = 4
+    assert rig.frame("weather=sample&scenario=busy", "v1") == sample
+    assert rig.shots == ["/display?scenario=busy&weather=sample", "/display?scenario=busy&weather=snow"]
+    assert render._cache == before

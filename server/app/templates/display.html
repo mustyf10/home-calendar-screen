@@ -34,10 +34,26 @@
   .row .takeaway { font-style: italic; }
   .warning { position: absolute; right: 8px; bottom: 0; padding-left: 6px; background: #fff;
     font-size: 14px; line-height: 16px; font-style: italic; }
+  .weather-enabled .weekday { font-size: 25px; line-height: 30px; }
+  .weather-enabled .daynum { font-size: 78px; line-height: 82px; }
+  .weather-strip { margin-top: 4px; max-height: 116px; }
+  .weather-heading { display: flex; gap: 4px; font-size: 12px; font-weight: bold; line-height: 16px; white-space: nowrap; }
+  .weather-heading > span:last-child { flex: none; }
+  .weather-location { overflow: hidden; text-overflow: ellipsis; }
+  .weather-credit { font-size: 10px; line-height: 12px; }
+  .weather-credit a { color: #000; text-decoration: none; }
+  .weather-cells { display: grid; text-align: center; }
+  .weather-label { height: 30px; display: flex; flex-direction: column; justify-content: end; font-size: 12px; line-height: 15px; white-space: nowrap; }
+  .weather-label-long { font-size: 9px; }
+  .weather-icon { display: block; margin: 0 auto; }
+  .weather-temperature { font-size: 16px; line-height: 18px; white-space: nowrap; }
+  .weather-temperature-long { font-size: 14px; }
+  .weather-probability { font-size: 11px; line-height: 14px; white-space: nowrap; }
+  .weather-unavailable { font-size: 14px; line-height: 24px; }
 </style>
 </head>
 <body>
-  <section class="left">
+  <section class="left{% if m.weather is not none %} weather-enabled{% endif %}">
     <div class="weekday">{{ m.header.weekday }}</div>
     <div class="daynum">{{ m.header.day }}</div>
     <div class="monthyear">{{ m.header.month_year }}</div>
@@ -53,6 +69,7 @@
       </tr>
       {% endfor %}
     </table>
+    {% if m.weather is not none %}{% include 'weather/strip.html' %}{% endif %}
   </section>
   <div class="rule"></div>
   <section class="right">

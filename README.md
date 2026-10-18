@@ -45,6 +45,17 @@ docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-... \
 
 The container runs as uid 1000 / gid 100, applies migrations on start and serves on port 8000.
 
+## Weather (optional)
+
+Set `WEATHER_API_KEY` in the server environment (or the Compose `.env` file, then recreate the container). Obtain a key from [WeatherAPI.com](https://www.weatherapi.com/); it stays on the server, not in browser settings. Weather is disabled by default and requires no database migration.
+
+In **Settings → Weather**, search for a location, explicitly select the correct region/country, then enable weather. Selecting a location alone does not enable it. Choose three daily forecasts or four sampled hours at fixed two-/three-hour boundaries, in Celsius or Fahrenheit. Weather uses the location's timezone; calendar and dinners keep the application's `TZ`. Subdaily rain/snow probabilities describe the sampled hour, not the whole interval.
+
+The server schedules a fetch within five seconds of enabling and every 30 minutes thereafter, including after failures. Changing mode/units or opening the display/preview uses the cache without another provider call. Last-good data is marked stale after one hour and hidden after six hours or beyond forecast coverage.
+
+The screen preview has sample, snow, missing-value, stale, unavailable and off weather controls; they never change the household settings or real panel. The existing offline banner still takes precedence over lower weather cells; provider credit sits above it. The Pi display client needs no weather key or update.
+
+
 ## Release
 
 Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: server and display-client tests, then an arm64 image build pushed to `ghcr.io/mustyf10/home-calendar-screen:vX.Y.Z`.

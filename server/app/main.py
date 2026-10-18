@@ -21,13 +21,15 @@ from app.menu import routes as menu_routes
 from app.shopping import routes as shopping_routes
 from app.shopping.auto import run_shopping_loop
 from app.tags import routes as tag_routes
+from app.weather import routes as weather_routes
+from app.weather.service import run_weather_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    loops = (run_worker, run_sync_loop, run_backup_loop, run_shopping_loop)
+    loops = (run_worker, run_sync_loop, run_backup_loop, run_shopping_loop, run_weather_loop)
     tasks = [asyncio.create_task(c()) for c in loops]
     yield
     for t in tasks:
@@ -51,6 +53,7 @@ for module in (
     calendar_routes,
     display_routes,
     preview_routes,
+    weather_routes,
 ):
     app.include_router(module.router)
 

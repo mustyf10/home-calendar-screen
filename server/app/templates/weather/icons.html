@@ -1,0 +1,18 @@
+{% macro weather_icon(kind) -%}
+<svg class="weather-icon" data-icon="{{ kind }}" viewBox="0 0 32 24" width="32" height="24" role="img" aria-label="{{ kind | replace('-', ' ') }}" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+{% if kind == 'clear-day' %}
+<circle cx="16" cy="12" r="5"/><path d="M16 1v3m0 16v3M5 12h3m16 0h3M8 4l2 2m12 12 2 2M8 20l2-2M22 6l2-2"/>
+{% elif kind == 'clear-night' %}
+<path d="M21 3A9 9 0 1 0 25 18 10 10 0 0 1 21 3Z"/>
+{% elif kind == 'unknown' %}
+<circle cx="16" cy="12" r="10"/><path d="M12 8a4 4 0 0 1 8 0c0 3-4 3-4 6m0 4h.01"/>
+{% else %}
+{% if kind == 'partly-cloudy' %}<circle cx="10" cy="7" r="4"/><path d="M10 1V0M4 7H1m4-5L3 0m14 7h3"/>{% endif %}
+<path d="M7 15a5 5 0 0 1 0-10 7 7 0 0 1 13-1 5.5 5.5 0 1 1 5 11Z" transform="translate(0 2) scale(1 .8)"/>
+{% if kind == 'rain' %}<path d="m9 17-2 4m10-4-2 4m10-4-2 4"/>
+{% elif kind in ['snow', 'thunder-snow'] %}<path d="M9 16v7m-3-5 6 3m-6 0 6-3m12-2v7m-3-5 6 3m-6 0 6-3"/>{% endif %}
+{% if kind in ['thunder', 'thunder-snow'] %}<path d="m17 13-4 6h5l-3 5"/>{% endif %}
+{% if kind == 'fog' %}<path d="M4 17h24M7 21h18"/>{% endif %}
+{% endif %}
+</svg>
+{%- endmacro %}

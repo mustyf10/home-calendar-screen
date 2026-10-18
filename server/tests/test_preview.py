@@ -205,3 +205,176 @@ def test_scenario_version_ignores_the_db(session, make_dish, serve):
     before = version(session, p)
     serve(make_dish("Fish pie"), date(2026, 10, 16))
     assert version(session, p) == before
+
+
+def test_scenario_weather_version_advances_at_next_hourly_boundary(session, monkeypatch):
+    from app import settings_store
+    import json
+
+    settings_store.put(session, "weather.config", json.dumps({
+        "enabled": False, "mode": "2h", "unit": "celsius",
+        "location": None, "fetch_generation": 0,
+    }))
+    session.commit()
+    monkeypatch.setattr(clock, "now", lambda: datetime(2026, 10, 16, 9, 59, tzinfo=LONDON))
+    before = version(session, params("scenario=busy"))
+    monkeypatch.setattr(clock, "now", lambda: datetime(2026, 10, 16, 10, 0, tzinfo=LONDON))
+    assert version(session, params("scenario=busy")) != before
+
+
+def save_weather(session, now, mode="daily"):
+    import json
+    from app import settings_store
+    from app.weather.scenarios import sample_weather
+
+    weather = sample_weather(now, now, "sample")
+    weather.config["mode"] = mode
+    settings_store.put(session, "weather.config", json.dumps(weather.config))
+    settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    return weather
+
+
+def test_corrupt_timezone_degrades_weather_and_recovers_when_cache_is_repaired(session):
+    import json
+    from app import settings_store
+
+    weather = save_weather(session, clock.now())
+    healthy = version(session, params())
+    weather.snapshot["timezone"] = "x" * 1000
+    settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    broken = version(session, params())
+    model, _ = preview_model(session, params())
+    assert model.weather["unavailable"] is True
+    assert broken != healthy
+    weather.snapshot["timezone"] = "Europe/London"
+    settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    model, _ = preview_model(session, params())
+    assert model.weather["unavailable"] is False
+    assert version(session, params()) != broken
+
+
+@pytest.mark.parametrize("state", ["sample", "snow", "missing", "stale", "unavailable", "off"])
+def test_weather_query_round_trips_canonically(state):
+    p = params(f"weather={state}&scenario=busy&warn=backup")
+    assert p.weather == state
+    assert p.query() == f"scenario=busy&warn=backup&weather={state}"
+    assert params(p.query()) == p
+    assert params("weather=secret-key").weather is None
+
+
+@pytest.mark.parametrize("path_name", ["WEATHER_STRIP", "WEATHER_ICONS"])
+def test_version_changes_with_weather_partial_mtime(session, tmp_path, monkeypatch, path_name):
+    source = getattr(preview, path_name)
+    copy = tmp_path / source.name
+    shutil.copy(source, copy)
+    monkeypatch.setattr(preview, path_name, copy)
+    p = params("scenario=quiet")
+    before = version(session, p)
+    st = copy.stat()
+    os.utime(copy, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    assert version(session, p) != before
+
+
+@pytest.mark.parametrize("threshold", [3600, 21600])
+def test_real_weather_version_changes_with_actual_age_despite_pretend_time(session, monkeypatch, threshold):
+    now = clock.now()
+    weather = save_weather(session, now)
+    fetched = datetime.fromisoformat(weather.snapshot["fetched_at"])
+    p = params("at=2026-10-17T09:00")
+    monkeypatch.setattr(clock, "now", lambda: fetched + timedelta(seconds=threshold - 1))
+    before = version(session, p)
+    monkeypatch.setattr(clock, "now", lambda: fetched + timedelta(seconds=threshold))
+    assert version(session, p) != before
+
+
+def test_real_weather_version_changes_at_local_boundary_without_fetch(session, monkeypatch):
+    now = datetime(2026, 10, 16, 9, 59, tzinfo=LONDON)
+    save_weather(session, now, "2h")
+    monkeypatch.setattr(clock, "now", lambda: now)
+    before = version(session, params())
+    monkeypatch.setattr(clock, "now", lambda: now + timedelta(minutes=1))
+    assert version(session, params()) != before
+
+
+def test_daily_weather_version_changes_at_dst_heading_transition(session, monkeypatch):
+    now = datetime(2026, 10, 25, 0, 59, tzinfo=ZoneInfo("UTC"))
+    save_weather(session, now)
+    monkeypatch.setattr(clock, "now", lambda: now)
+    before = version(session, params())
+    monkeypatch.setattr(clock, "now", lambda: now + timedelta(minutes=1))
+    assert version(session, params()) != before
+
+
+def test_real_weather_version_tracks_location_midnight_not_calendar_midnight(session, monkeypatch):
+    import json
+    from app import settings_store
+    from app.weather.types import location_key
+
+    now = datetime(2026, 10, 16, 15, 59, tzinfo=LONDON)
+    weather = save_weather(session, now)
+    weather.config["location"] = {"name": "Tokyo", "region": "", "country": "Japan", "lat": 35.7, "lon": 139.7}
+    weather.snapshot.update(timezone="Asia/Tokyo", location_key=location_key(weather.config["location"]))
+    settings_store.put(session, "weather.config", json.dumps(weather.config))
+    settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    monkeypatch.setattr(clock, "now", lambda: now)
+    before = version(session, params())
+    monkeypatch.setattr(clock, "now", lambda: now + timedelta(minutes=1))
+    assert version(session, params()) != before
+
+
+@pytest.mark.parametrize("field,value", [("mode", "3h"), ("unit", "fahrenheit"), ("enabled", False)])
+def test_real_weather_version_tracks_saved_preferences(session, field, value):
+    import json
+    from app import settings_store
+
+    weather = save_weather(session, clock.now())
+    before = version(session, params())
+    weather.config[field] = value
+    settings_store.put(session, "weather.config", json.dumps(weather.config))
+    session.commit()
+    assert version(session, params()) != before
+
+
+def test_scenario_weather_follows_shifted_month_boundary_time():
+    model, _ = preview_model(None, params("scenario=month-boundary&at=2026-10-16T12:00"))
+    assert model.weather["unavailable"] is False
+    assert model.weather["cells"][0]["label"] == f"{model.header.weekday[:3].title()} {model.header.day}"
+
+
+def test_scenario_weather_defaults_to_sample_and_can_be_turned_off():
+    sample, _ = preview_model(None, params("scenario=quiet"))
+    off, _ = preview_model(None, params("scenario=quiet&weather=off"))
+    assert sample.weather["unavailable"] is False
+    assert off.weather is None
+
+
+@pytest.mark.parametrize("change", ["location", "snapshot"])
+def test_real_weather_version_tracks_location_and_snapshot_identity(session, change):
+    import json
+    from app import settings_store
+
+    weather = save_weather(session, clock.now())
+    before = version(session, params())
+    if change == "location":
+        weather.config["location"]["lon"] = -0.2
+        settings_store.put(session, "weather.config", json.dumps(weather.config))
+    else:
+        weather.snapshot["fetched_at"] = (clock.now() - timedelta(minutes=5)).isoformat()
+        settings_store.put(session, "weather.snapshot", json.dumps(weather.snapshot))
+    session.commit()
+    assert version(session, params()) != before
+
+
+def test_weather_config_key_order_does_not_invalidate_identical_preview(session):
+    import json
+    from app import settings_store
+
+    weather = save_weather(session, clock.now())
+    before = version(session, params())
+    settings_store.put(session, "weather.config", json.dumps(dict(reversed(list(weather.config.items())))))
+    session.commit()
+    assert version(session, params()) == before

@@ -11,6 +11,7 @@ class Config:
     anthropic_api_key: str | None
     llm_model: str
     base_url_internal: str = "http://127.0.0.1:8000"
+    weather_api_key: str | None = None
 
     @property
     def media_dir(self) -> Path:
@@ -24,6 +25,7 @@ def load() -> Config:
         backup_dir=Path(os.environ.get("BACKUP_DIR") or "/backups"),
         anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
         llm_model=os.environ.get("LLM_MODEL") or "claude-sonnet-5-5",
+        weather_api_key=os.environ.get("WEATHER_API_KEY") or None,
     )
 
 

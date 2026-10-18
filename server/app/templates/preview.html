@@ -16,6 +16,14 @@
       {% endfor %}
     </select>
   </label>
+  <label>Weather
+    <select name="weather">
+      <option value="" {% if params.weather is none %}selected{% endif %}>Saved / scenario default</option>
+      {% for key, label in weather_labels.items() %}
+      <option value="{{ key }}" {% if key == params.weather %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <fieldset>
     <legend>Warnings</legend>
     {% for key, label in warning_labels.items() %}
@@ -26,6 +34,7 @@
     <input type="time" name="offline" value="{{ params.offline.strftime('%H:%M') if params.offline else '' }}">
   </label>
 </form>
+<p class="muted">Forecast source: <a href="https://www.weatherapi.com/">WeatherAPI.com</a>. Sample weather follows the selected date; mode and units follow Settings. Percentages refer to the sampled hour in 2h/3h modes.</p>
 
 <fieldset class="preview-controls" id="zoom">
   <legend>Zoom</legend>

@@ -13,6 +13,7 @@ from app.calendars.sync import load_feed, store_events, sync_all
 from app.db import get_session
 from app.models import Calendar
 from app.web import render
+from app.weather.service import settings_context
 
 router = APIRouter()
 
@@ -55,6 +56,7 @@ def _page(request: Request, session: Session, status_code: int = 200, **ctx):
         "backup_last_error": settings_store.get(session, "backup_last_error"),
         "form": {"name": "", "url": ""},
         "error": None,
+        "weather": settings_context(session),
         **ctx,
     }, status_code=status_code)
 

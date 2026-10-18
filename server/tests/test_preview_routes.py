@@ -73,3 +73,22 @@ def test_preview_frame_png(client, monkeypatch):
     assert r.headers["cache-control"] == "no-store"
     assert r.headers["x-preview-version"] == "0123456789abcdef"
     assert seen[0][0] == "scenario=busy" and len(seen[0][1]) == 16
+
+
+def test_weather_preview_and_version_do_not_make_upstream_requests(client, monkeypatch):
+    import httpx
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Display and preview must only read cached weather")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", forbidden)
+    for query in ("scenario=quiet&weather=sample", "scenario=busy&weather=snow", "weather=unavailable", "weather=off", ""):
+        assert client.get("/display?" + query).status_code == 200
+        assert client.get("/preview/version?" + query).status_code == 200
+
+
+def test_preview_unknown_weather_is_not_reflected_in_version_urls(client):
+    response = client.get("/preview?scenario=quiet&weather=weather-test-secret")
+    assert response.status_code == 200
+    assert "weather-test-secret" not in response.text
+    assert "weather-test-secret" not in client.get("/preview/version?weather=weather-test-secret").text

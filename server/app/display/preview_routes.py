@@ -10,6 +10,7 @@ from app.db import get_session
 from app.display.preview import WARNING_LABELS, parse_params, preview_model, version
 from app.display.preview_render import get_preview_frame
 from app.display.scenarios import SCENARIO_LABELS
+from app.weather.scenarios import WEATHER_LABELS
 from app.web import render
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def preview(request: Request, session: Session = Depends(get_session)):
         "query": params.query(),
         "labels": SCENARIO_LABELS,
         "warning_labels": WARNING_LABELS,
+        "weather_labels": WEATHER_LABELS,
         "note": note,
         "version": version(session, params),
         "default_at": f"{clock.now():%Y-%m-%dT%H:%M}",

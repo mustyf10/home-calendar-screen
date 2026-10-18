@@ -1,0 +1,36 @@
+<section id="weather">
+  <h2>Weather</h2>
+  <p>API key: <strong>{{ "configured" if weather.key_configured else "not configured" }}</strong>.</p>
+  {% if not weather.key_configured %}<p class="muted">Set <code>WEATHER_API_KEY</code> in the server environment and recreate the container. The key is never entered here.</p>{% endif %}
+  {% if weather.error %}<p class="error" role="alert">{{ weather.error }}</p>{% endif %}
+  {% if weather.config.location %}
+  <p>Selected location: <strong>{{ weather.config.location.name }}</strong>{% if weather.config.location.region %}, {{ weather.config.location.region }}{% endif %}, {{ weather.config.location.country }}<br>
+    <small>{{ weather.config.location.lat }}, {{ weather.config.location.lon }}</small><br>
+    <small>{{ weather.timezone or "Timezone resolved on first forecast" }}</small></p>
+  {% else %}<p>No weather location selected.</p>{% endif %}
+  <form method="get" action="/settings/weather/search" hx-get="/settings/weather/search" hx-target="#weather-search-results">
+    <label for="weather-query">Find a location</label>
+    <input id="weather-query" name="q" type="search" required maxlength="100" placeholder="City or postcode" autocomplete="off">
+    <button type="submit" class="secondary">Search</button>
+  </form>
+  <div id="weather-search-results" aria-live="polite" hx-on::before-swap="if (event.detail.xhr.status === 422 || event.detail.xhr.status === 502) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
+  <form method="post" action="/settings/weather">
+    <label><input type="checkbox" name="enabled" role="switch" {% if weather.config.enabled %}checked{% endif %}> Show weather on the screen</label>
+    <label for="weather-mode">Forecast</label>
+    <select id="weather-mode" name="mode">
+      <option value="daily" {% if weather.config.mode == "daily" %}selected{% endif %}>Daily · three days</option>
+      <option value="2h" {% if weather.config.mode == "2h" %}selected{% endif %}>Every 2 hours · four sampled hours</option>
+      <option value="3h" {% if weather.config.mode == "3h" %}selected{% endif %}>Every 3 hours · four sampled hours</option>
+    </select>
+    <label for="weather-unit">Temperature unit</label>
+    <select id="weather-unit" name="unit">
+      <option value="celsius" {% if weather.config.unit == "celsius" %}selected{% endif %}>°C · Celsius</option>
+      <option value="fahrenheit" {% if weather.config.unit == "fahrenheit" %}selected{% endif %}>°F · Fahrenheit</option>
+    </select>
+    <button type="submit">Save weather</button>
+  </form>
+  <p>Last successful forecast: {{ weather.last_success or "never" }}.</p>
+  {% if weather.last_error %}<p class="error">Last error: {{ weather.last_error }}</p>{% endif %}
+  <p class="muted">Selecting a location does not enable weather. Enabled forecasts refresh every 30 minutes; changes to units or mode use the cached forecast. Subdaily rain/snow percentages refer to the sampled hour, not the whole interval.</p>
+  <p><a href="https://www.weatherapi.com/" rel="noreferrer">WeatherAPI.com</a></p>
+</section>

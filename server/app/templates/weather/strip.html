@@ -1,0 +1,18 @@
+{% from 'weather/icons.html' import weather_icon %}
+<section class="weather-strip" aria-label="Weather forecast">
+  <div class="weather-heading"><span class="weather-location">{{ m.weather.location }}</span><span>{{ m.weather.unit_label }}{% if m.weather.timezone_label %} · {{ m.weather.timezone_label }}{% endif %}{% if m.weather.stale %} · Stale{% endif %}</span></div>
+  <div class="weather-credit"><a href="https://www.weatherapi.com/">WeatherAPI.com</a></div>
+  {% if m.weather.unavailable %}<div class="weather-unavailable">Weather unavailable</div>
+  {% else %}
+  <div class="weather-cells" style="grid-template-columns: repeat({{ m.weather.cells | length }}, minmax(0, 1fr))">
+    {% for cell in m.weather.cells %}
+    <div class="weather-cell">
+      <div class="weather-label{% if cell.label | length > 5 and m.weather.cells | length == 4 %} weather-label-long{% endif %}">{% if cell.day_label %}<span>{{ cell.day_label }}</span>{% endif %}<span>{{ cell.label }}</span></div>
+      {{ weather_icon(cell.icon) }}
+      <div class="weather-temperature{% if cell.temperature | length > 8 %} weather-temperature-long{% endif %}">{{ cell.temperature }}</div>
+      <div class="weather-probability">{{ cell.precipitation }} {{ cell.probability }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

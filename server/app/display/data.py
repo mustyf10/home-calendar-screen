@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from app import settings_store
 from app.clock import fmt_day, week_dates, week_start
 from app.models import Calendar, CalendarEvent, MenuEntry
+from app.weather.forecast import select_weather
+from app.weather.service import load_weather
+from app.weather.types import WeatherInputs
 
 AGENDA_LINES = 11
 TODAY_MAX_EVENTS = 9
@@ -61,6 +64,7 @@ class DisplayModel:
     agenda: list[AgendaLine]
     dinners: Dinners
     warning: str | None = None
+    weather: dict | None = None
 
 
 @dataclass
@@ -241,6 +245,7 @@ class DisplayInputs:
     events: list[Event]
     menu: dict[date, str | None]
     warning: str | None
+    weather: WeatherInputs | None = None
 
 
 def load_inputs(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayInputs:
@@ -248,10 +253,11 @@ def load_inputs(session: Session, now: datetime, uptime: timedelta | None = None
         events=[_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))],
         menu=_menu(session, now.date()),
         warning=warning(session, now, uptime),
+        weather=load_weather(session),
     )
 
 
-def compose(inputs: DisplayInputs, now: datetime) -> DisplayModel:
+def compose(inputs: DisplayInputs, now: datetime, *, actual_now: datetime | None = None) -> DisplayModel:
     today = now.date()
     return DisplayModel(
         header=Header(weekday=f"{today:%A}".upper(), day=today.day, month_year=f"{today:%B %Y}"),
@@ -259,4 +265,5 @@ def compose(inputs: DisplayInputs, now: datetime) -> DisplayModel:
         agenda=_agenda(inputs.events, today),
         dinners=_dinners(inputs.menu, today),
         warning=inputs.warning,
+        weather=select_weather(inputs.weather, now, actual_now=actual_now) if inputs.weather else None,
     )

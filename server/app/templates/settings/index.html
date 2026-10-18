@@ -67,6 +67,8 @@
   </form>
 </section>
 
+{% include "weather/settings.html" %}
+
 <section>
   <h2>Backup</h2>
   <p>Last successful backup: {{ backup_last_ok or "never" }}</p>
