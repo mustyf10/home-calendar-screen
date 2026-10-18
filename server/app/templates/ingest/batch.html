@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% from "_ui.html" import page_head %}
 {% block title %}Paper batch #{{ batch.id }} · Kitchen{% endblock %}
 {% block content %}
-<h1>Paper batch #{{ batch.id }}</h1>
-<p class="muted">{{ batch.page_paths | length }} page{{ '' if batch.page_paths | length == 1 else 's' }} · <a href="/imports">All imports</a></p>
+{% set meta %}{{ batch.page_paths | length }} page{{ '' if batch.page_paths | length == 1 else 's' }} · <a href="/imports">All imports</a>{% endset %}
+{{ page_head("Paper batch #" ~ batch.id, meta) }}
 {% include "ingest/_batch_body.html" %}
 {% endblock %}

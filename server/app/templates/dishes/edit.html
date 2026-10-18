@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_ui.html" import page_head %}
 {% block title %}{{ heading }} · Kitchen{% endblock %}
 {% block content %}
-<h1>{{ heading }}</h1>
-{% include "dishes/_form.html" %}
+{{ page_head(heading) }}
+<div class="card-box form-card">
+  {% include "dishes/_form.html" %}
+</div>
 {% endblock %}

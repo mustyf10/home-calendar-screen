@@ -12,7 +12,7 @@ from app.db import get_session
 from app.dishes.forms import DishInput, apply, core_tag_warning, similar_dishes, validate
 from app.dishes.search import search_dishes
 from app.menu.entries import menu_history
-from app.models import DISH_TYPES, Dish
+from app.models import DISH_TYPES, TYPE_LABELS, Dish
 from app.tags.service import CORE_TAGS, existing_tag_names, normalize_tag
 from app.web import render
 
@@ -43,10 +43,19 @@ def list_dishes(
     dishes = search_dishes(session, q, type=type or None, tag=tag or None, archived=archived)
     today = clock.today()
     history = menu_history(session, [d.id for d in dishes if d.type == "dinner"], today)
-    keep = {"q": q, "type": type, "archived": "1" if archived else ""}
-    clear_tag_url = "/dishes?" + urlencode({k: v for k, v in keep.items() if v})
+    keep = {"q": q, "archived": "1" if archived else ""}
+
+    def url(**extra: str) -> str:
+        return "/dishes?" + urlencode({k: v for k, v in {**keep, **extra}.items() if v})
+
+    clear_tag_url = url(type=type)
+    categories = [{"label": "All", "icon": "all", "href": url(tag=tag), "current": not type}] + [
+        {"label": TYPE_LABELS[key], "icon": key, "href": url(type=key, tag=tag), "current": type == key}
+        for key in DISH_TYPES
+    ]
     return render(request, "dishes/list.html", {
         "clear_tag_url": clear_tag_url,
+        "categories": categories,
         "dishes": dishes,
         "history": history,
         "q": q,

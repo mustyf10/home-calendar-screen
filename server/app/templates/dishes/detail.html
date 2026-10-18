@@ -1,65 +1,75 @@
 {% extends "base.html" %}
 {% from "dishes/_macros.html" import chips with context %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}{{ dish.title }} · Kitchen{% endblock %}
 {% block content %}
 {% if dish.archived %}<p class="warn">This recipe is archived. It won't be rolled or offered when choosing a dinner.</p>{% endif %}
 {% if core_warning %}<p class="warn">{{ core_warning }}</p>{% endif %}
 {% for s in similar %}<p class="warn">Similar recipe already saved: <a href="/dishes/{{ s.id }}">{{ s.title }}</a></p>{% endfor %}
 
-<article>
-  <header>
-    <span class="type-badge">{{ TYPE_LABELS[dish.type] }}</span>
-    <h1>{{ dish.title }}</h1>
-    {{ chips(dish.tag_names) }}
-    {% if history %}
-    <p class="muted">
-      Last on menu: {{ history.last_on_menu | day if history.last_on_menu else "Never" }} ·
-      Can be rolled from: {{ history.rollable_from | day if history.rollable_from else "now" }}
-    </p>
+{% call page_head(dish.title) %}
+  <a href="/dishes/{{ dish.id }}/edit" role="button" class="contrast">{{ icon("edit") }}Edit</a>
+  {% if dish.archived %}
+  <form method="post" action="/dishes/{{ dish.id }}/restore"><button type="submit" class="secondary">{{ icon("restore") }}Restore</button></form>
+  {% else %}
+  <form method="post" action="/dishes/{{ dish.id }}/archive"><button type="submit" class="secondary outline">{{ icon("archive") }}Archive</button></form>
+  {% endif %}
+{% endcall %}
+
+<ul class="facts">
+  <li>{{ icon(dish.type) }}<span class="visually-hidden">Type: </span>{{ TYPE_LABELS[dish.type] }}</li>
+  {% if dish.servings %}<li>{{ icon("serves") }}Serves {{ dish.servings }}</li>{% endif %}
+  {% if dish.total_minutes %}<li>{{ icon("clock") }}{{ dish.total_minutes }} min</li>{% endif %}
+</ul>
+
+<div class="recipe">
+  <div class="recipe-side">
+    <figure class="recipe-photo">
+      {% if dish.image_path %}<img src="/media/{{ dish.image_path }}" alt="">{% else %}{{ icon(dish.type) }}{% endif %}
+    </figure>
+    {% if dish.tag_names or history %}
+    <div>
+      {{ chips(dish.tag_names) }}
+      {% if history %}
+      <p class="muted">
+        Last on menu: {{ history.last_on_menu | day if history.last_on_menu else "Never" }} ·
+        Can be rolled from: {{ history.rollable_from | day if history.rollable_from else "now" }}
+      </p>
+      {% endif %}
+    </div>
     {% endif %}
-  </header>
+    {% if dish.ingredients %}
+    <section class="card-box" aria-labelledby="ingredients-h">
+      <h2 id="ingredients-h">Ingredients</h2>
+      <ul class="ingredients">{% for i in dish.ingredients %}<li>{{ i }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+  </div>
 
-  {% if dish.image_path %}<img src="/media/{{ dish.image_path }}" alt="">{% endif %}
-  {% if dish.description %}<p>{{ dish.description }}</p>{% endif %}
-  {% if dish.servings or dish.total_minutes %}
-  <p class="muted">
-    {% if dish.servings %}Serves {{ dish.servings }}{% endif %}
-    {% if dish.servings and dish.total_minutes %} · {% endif %}
-    {% if dish.total_minutes %}{{ dish.total_minutes }} min{% endif %}
-  </p>
-  {% endif %}
+  {% if dish.description or dish.steps or dish.notes or dish.source_url or dish.scan_paths %}
+  <div class="card-box">
+    {% if dish.description %}<p class="description">{{ dish.description }}</p>{% endif %}
 
-  {% if dish.ingredients %}
-  <h2>Ingredients</h2>
-  <ul>{% for i in dish.ingredients %}<li>{{ i }}</li>{% endfor %}</ul>
-  {% endif %}
+    {% if dish.steps %}
+    <h2>Steps</h2>
+    <ol class="steps">{% for s in dish.steps %}<li>{{ s }}</li>{% endfor %}</ol>
+    {% endif %}
 
-  {% if dish.steps %}
-  <h2>Steps</h2>
-  <ol>{% for s in dish.steps %}<li>{{ s }}</li>{% endfor %}</ol>
-  {% endif %}
+    {% if dish.notes %}
+    <h2>Notes</h2>
+    <p class="notes">{{ dish.notes }}</p>
+    {% endif %}
 
-  {% if dish.notes %}
-  <h2>Notes</h2>
-  <p style="white-space: pre-wrap">{{ dish.notes }}</p>
-  {% endif %}
+    {% if dish.source_url %}<p class="source">Source: <a href="{{ dish.source_url }}" rel="noopener noreferrer" target="_blank">{{ dish.source_url }}</a></p>{% endif %}
 
-  {% if dish.source_url %}<p>Source: <a href="{{ dish.source_url }}" rel="noopener noreferrer" target="_blank">{{ dish.source_url }}</a></p>{% endif %}
-
-  {% if dish.scan_paths %}
-  <h2>Original recipe</h2>
-  <div class="thumbs">
-    {% for p in dish.scan_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="Scan {{ loop.index }}" loading="lazy"></a>{% endfor %}
+    {% if dish.scan_paths %}
+    <h2>Original recipe</h2>
+    <div class="thumbs">
+      {% for p in dish.scan_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="Scan {{ loop.index }}" loading="lazy"></a>{% endfor %}
+    </div>
+    {% endif %}
   </div>
   {% endif %}
-
-  <footer class="row-actions">
-    <a href="/dishes/{{ dish.id }}/edit" role="button">Edit</a>
-    {% if dish.archived %}
-    <form method="post" action="/dishes/{{ dish.id }}/restore"><button type="submit" class="secondary">Restore</button></form>
-    {% else %}
-    <form method="post" action="/dishes/{{ dish.id }}/archive"><button type="submit" class="secondary outline">Archive</button></form>
-    {% endif %}
-  </footer>
-</article>
+</div>
 {% endblock %}

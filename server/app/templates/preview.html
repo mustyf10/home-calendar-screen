@@ -1,10 +1,14 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}Screen preview · Kitchen{% endblock %}
 {% block content %}
-<h1>Screen preview</h1>
-<p class="muted">Updates live when the data or the display code changes. These controls only affect this page, never the real panel.</p>
+{% call page_head("Screen preview") %}
+  <a href="/settings" role="button" class="secondary outline">{{ icon("chevron-left") }}Settings</a>
+{% endcall %}
+<p class="lede">Updates live when the data or the display code changes. These controls only affect this page, never the real panel.</p>
 
-<form method="get" action="/preview" class="preview-controls" onchange="this.submit()">
+<form method="get" action="/preview" class="preview-controls card-box" onchange="this.submit()">
   <label>Pretend time <small class="muted">(live: {{ default_at | replace("T", " ") }})</small>
     <input type="datetime-local" name="at" value="{{ params.at.strftime('%Y-%m-%dT%H:%M') if params.at else '' }}">
   </label>
@@ -59,7 +63,7 @@
   </div>
 </div>
 
-<details>
+<details class="card-box">
   <summary>Calibrate 1:1 physical size</summary>
   <p class="muted">Hold a bank card against the screen and drag until the outline matches its width.</p>
   <input type="range" id="calib" min="2" max="12" step="0.01">

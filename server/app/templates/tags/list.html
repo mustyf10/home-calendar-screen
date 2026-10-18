@@ -1,18 +1,20 @@
 {% extends "base.html" %}
+{% from "_ui.html" import page_head %}
 {% block title %}Tags · Kitchen{% endblock %}
 {% block content %}
-<h1>Tags</h1>
-<p class="muted">Renaming a tag to one that already exists merges them. Core tags can't be renamed or deleted.</p>
+{{ page_head("Tags", rows | length ~ " tag" ~ ("" if rows | length == 1 else "s")) }}
+<p class="lede">Renaming a tag to one that already exists merges them. Core tags can't be renamed or deleted.</p>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<section class="card-box">
 <div class="overflow-auto">
-<table>
+<table class="tag-table">
   <thead><tr><th>Tag</th><th>Recipes</th><th>Rename</th><th></th></tr></thead>
   <tbody>
   {% for tag, count in rows %}
   {% set core = tag.name in core_tags %}
   <tr>
     <td><a class="chip{% if core %} core{% endif %}" href="/dishes?tag={{ tag.name | urlencode }}">#{{ tag.name }}</a></td>
-    <td>{{ count }}</td>
+    <td data-label="Recipes">{{ count }}</td>
     <td>
       {% if not core %}
       <form method="post" action="/tags/{{ tag.id }}/rename" class="row-actions">
@@ -22,16 +24,17 @@
       {% else %}<span class="muted">core</span>{% endif %}
     </td>
     <td>
-      {% if not core %}
+      {%- if not core %}
       <div class="row-actions">
         <button type="button" class="secondary outline" hx-post="/tags/{{ tag.id }}/delete"
           hx-confirm="Delete #{{ tag.name }}? It will be removed from {{ count }} recipe(s).">Delete</button>
       </div>
-      {% endif %}
+      {% endif -%}
     </td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
+</section>
 {% endblock %}

@@ -1,0 +1,32 @@
+{# Shared page pieces. Import: {% from "_ui.html" import page_head, list_row, discard_form %} #}
+{% from "_icons.html" import icon %}
+
+{# Title, an optional quiet meta line, and (via {% call %}) actions on the right. #}
+{% macro page_head(title, meta=None) -%}
+<div class="page-head">
+  <h1>{{ title }}</h1>
+  {% if meta %}<span class="page-meta">{{ meta }}</span>{% endif %}
+  {% if caller %}<div class="row-actions actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{# One row of a .list-card. Anything passed via {% call %} (actions, thumbs) follows the main block. #}
+{% macro list_row(icon_name, title, href=None, meta=None, error=None) -%}
+<li>
+  <div class="list-main">
+    {% if icon_name %}{{ icon(icon_name) }}{% endif %}
+    <div>
+      {% if href %}<a class="list-title" href="{{ href }}">{{ title }}</a>{% else %}<span class="list-title">{{ title }}</span>{% endif %}
+      {% if meta %}<p class="muted">{{ meta }}</p>{% endif %}
+      {% if error %}<small class="error">{{ error }}</small>{% endif %}
+    </div>
+  </div>
+  {% if caller %}{{ caller() }}{% endif %}
+</li>
+{%- endmacro %}
+
+{% macro discard_form(job_id, label="Discard") -%}
+<form method="post" action="/imports/{{ job_id }}/discard">
+  <button type="submit" class="secondary outline">{{ label }}</button>
+</form>
+{%- endmacro %}

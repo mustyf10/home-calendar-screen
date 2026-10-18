@@ -4,7 +4,7 @@
   <div class="weather-credit"><a href="https://www.weatherapi.com/">WeatherAPI.com</a></div>
   {% if m.weather.unavailable %}<div class="weather-unavailable">Weather unavailable</div>
   {% else %}
-  <div class="weather-cells" style="grid-template-columns: repeat({{ m.weather.cells | length }}, minmax(0, 1fr))">
+  <div class="weather-cells" data-count="{{ m.weather.cells | length }}" style="grid-template-columns: repeat({{ m.weather.cells | length }}, minmax(0, 1fr))">
     {% for cell in m.weather.cells %}
     <div class="weather-cell">
       <div class="weather-label{% if cell.label | length > 5 and m.weather.cells | length == 4 %} weather-label-long{% endif %}">{% if cell.day_label %}<span>{{ cell.day_label }}</span>{% endif %}<span>{{ cell.label }}</span></div>

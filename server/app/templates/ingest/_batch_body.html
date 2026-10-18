@@ -1,21 +1,30 @@
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import list_row %}
 <div id="batch-body"{% if polling %} hx-get="/imports/batches/{{ batch.id }}/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 {% if batch.status in ("queued", "grouping") %}
-  <p aria-busy="true">{{ status_text[batch.status] }}</p>
-  <div class="thumbs">{% for p in batch.page_paths %}<img src="/media/{{ p }}" alt="Page {{ loop.index }}" loading="lazy">{% endfor %}</div>
+  <div class="card-box">
+    <p aria-busy="true">{{ status_text[batch.status] }}</p>
+    <div class="thumbs">{% for p in batch.page_paths %}<img src="/media/{{ p }}" alt="Page {{ loop.index }}" loading="lazy">{% endfor %}</div>
+  </div>
 {% elif batch.status == "failed" %}
-  <p class="error">{{ batch.error }}</p>
-  <form method="post" action="/imports/batches/{{ batch.id }}/retry"><button type="submit">Retry</button></form>
+  <div class="card-box">
+    <p class="error">{{ batch.error }}</p>
+    <form method="post" action="/imports/batches/{{ batch.id }}/retry"><button type="submit">{{ icon("refresh") }}Retry</button></form>
+  </div>
 {% else %}
-  {% if next_draft %}<p><a role="button" href="/imports/{{ next_draft.id }}">Review next draft</a></p>{% endif %}
+  {% if next_draft %}<p><a role="button" href="/imports/{{ next_draft.id }}">Review next draft{{ icon("chevron-right") }}</a></p>{% endif %}
   <h2>Recipes ({{ jobs | length }})</h2>
-  {% for j in jobs %}
-  <article>
-    <a href="/imports/{{ j.id }}"><strong>{{ (j.extracted or {}).get("title") or "Recipe " ~ loop.index }}</strong></a>
-    <span class="muted">· {% if j.dish_id %}Saved{% else %}<span{% if polling and j.status in ("queued", "fetching", "transcribing", "extracting") %} aria-busy="true"{% endif %}>{{ status_text.get(j.status, j.status) }}</span>{% endif %}</span>
-    {% if j.status == "failed" %}<br><small class="error">{{ j.error }}</small>{% endif %}
-    <div class="thumbs">{% for p in j.upload_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="" loading="lazy"></a>{% endfor %}</div>
-  </article>
-  {% endfor %}
+  {% if jobs %}
+  <ul class="list-card">
+    {% for j in jobs %}
+    {% set status %}{% if j.dish_id %}Saved{% else %}<span{% if polling and j.status in ("queued", "fetching", "transcribing", "extracting") %} aria-busy="true"{% endif %}>{{ status_text.get(j.status, j.status) }}</span>{% endif %}{% endset %}
+    {% call list_row("recipes", (j.extracted or {}).get("title") or "Recipe " ~ loop.index, href="/imports/" ~ j.id,
+         meta=status, error=j.error if j.status == "failed" else None) %}
+      <div class="thumbs">{% for p in j.upload_paths %}<a href="/media/{{ p }}" target="_blank"><img src="/media/{{ p }}" alt="" loading="lazy"></a>{% endfor %}</div>
+    {% endcall %}
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% if batch.unreadable_pages %}
   <h3>Unreadable pages</h3>
   <p class="muted">No recipe could be read on these pages.</p>

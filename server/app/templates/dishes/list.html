@@ -1,51 +1,57 @@
 {% extends "base.html" %}
 {% from "dishes/_macros.html" import chips with context %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}Recipes · Kitchen{% endblock %}
 {% block content %}
-<hgroup>
-  <h1>{% if archived %}Archived recipes{% else %}Recipes{% endif %}</h1>
-  <p class="row-actions">
-    <a href="/dishes/new" role="button">Add recipe</a>
-    {% if archived %}<a href="/dishes" role="button" class="secondary outline">Back to recipes</a>
-    {% else %}<a href="/dishes?archived=1" role="button" class="secondary outline">Archived</a>{% endif %}
-  </p>
-</hgroup>
+{% call page_head("Archived recipes" if archived else "Recipes", dishes | length ~ " recipe" ~ ("" if dishes | length == 1 else "s")) %}
+  {% if archived %}<a href="/dishes" role="button" class="secondary outline">{{ icon("chevron-left") }}Back to recipes</a>
+  {% else %}<a href="/dishes?archived=1" role="button" class="secondary outline">{{ icon("archive") }}Archived</a>{% endif %}
+{% endcall %}
 
 <form method="get" action="/dishes" role="search">
-  <input type="search" name="q" value="{{ q }}" placeholder="Search title, ingredients, #tags…">
-  <select name="type" aria-label="Type" onchange="this.form.submit()">
-    <option value="" {% if not type %}selected{% endif %}>All</option>
-    {% for key, label in TYPE_LABELS.items() %}
-    <option value="{{ key }}" {% if type == key %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
+  <input type="search" name="q" value="{{ q }}" placeholder="Search title, ingredients, #tags…" aria-label="Search recipes">
+  {% if type %}<input type="hidden" name="type" value="{{ type }}">{% endif %}
   {% if tag %}<input type="hidden" name="tag" value="{{ tag }}">{% endif %}
   {% if archived %}<input type="hidden" name="archived" value="1">{% endif %}
-  <button type="submit">Search</button>
+  <button type="submit">{{ icon("search") }}Search</button>
 </form>
+
+<nav class="categories" aria-label="Recipe type">
+  {% for c in categories %}
+  <a href="{{ c.href }}"{% if c.current %} aria-current="true"{% endif %}>{{ icon(c.icon) }}{{ c.label }}</a>
+  {% endfor %}
+</nav>
 {% if tag %}
-<p><a class="chip core" href="{{ clear_tag_url }}">#{{ tag }} ✕</a></p>
+<p class="filter-row"><a class="chip core chip-clear" href="{{ clear_tag_url }}" aria-label="Clear tag filter #{{ tag }}">#{{ tag }}{{ icon("close") }}</a></p>
 {% endif %}
 
 {% if not dishes %}
-<p class="muted">No recipes found.</p>
+<p class="card-box empty">{{ icon("search") }}No recipes found.</p>
 {% endif %}
 <div class="cards">
   {% for d in dishes %}
   <article class="card">
-    {% if d.image_path %}<a href="/dishes/{{ d.id }}"><img src="/media/{{ d.image_path }}" alt="" loading="lazy"></a>{% endif %}
-    <span class="type-badge">{{ TYPE_LABELS[d.type] }}</span>
-    <h3><a href="/dishes/{{ d.id }}">{{ d.title }}</a></h3>
-    {{ chips(d.tag_names) }}
-    {% if d.type == "dinner" %}{% set h = history[d.id] %}
-    <p class="muted">
-      Last on menu: {{ h.last_on_menu | day if h.last_on_menu else "Never" }}<br>
-      Can be rolled from: {{ h.rollable_from | day if h.rollable_from else "now" }}
-    </p>
-    {% endif %}
-    {% if archived %}
-    <form method="post" action="/dishes/{{ d.id }}/restore"><button type="submit" class="secondary">Restore</button></form>
-    {% endif %}
+    <div class="card-media">
+      <a href="/dishes/{{ d.id }}" tabindex="-1" aria-hidden="true">
+        {% if d.image_path %}<img src="/media/{{ d.image_path }}" alt="" loading="lazy">{% else %}{{ icon(d.type) }}{% endif %}
+      </a>
+      {% if d.total_minutes %}<span class="card-time">{{ icon("clock") }}{{ d.total_minutes }} min</span>{% endif %}
+    </div>
+    <div class="card-body">
+      <h3><a href="/dishes/{{ d.id }}">{{ d.title }}</a></h3>
+      <span class="type-badge">{{ TYPE_LABELS[d.type] }}</span>
+      {{ chips(d.tag_names) }}
+      {% if d.type == "dinner" %}{% set h = history[d.id] %}
+      <p class="muted">
+        Last on menu: {{ h.last_on_menu | day if h.last_on_menu else "Never" }}<br>
+        Can be rolled from: {{ h.rollable_from | day if h.rollable_from else "now" }}
+      </p>
+      {% endif %}
+      {% if archived %}
+      <form method="post" action="/dishes/{{ d.id }}/restore"><button type="submit" class="secondary">{{ icon("restore") }}Restore</button></form>
+      {% endif %}
+    </div>
   </article>
   {% endfor %}
 </div>

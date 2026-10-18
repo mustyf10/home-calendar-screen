@@ -1,44 +1,43 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}Shopping · Kitchen{% endblock %}
 {% block content %}
-<hgroup>
-  <h1>Shopping list</h1>
-  <p>{{ range_text }}</p>
-</hgroup>
-<nav class="row-actions">
-  <a href="/shopping?week={{ prev_week.isoformat() }}" role="button" class="secondary outline">← Previous</a>
-  <a href="/shopping?week={{ next_week.isoformat() }}" role="button" class="secondary outline">Next →</a>
-  <a href="/menu?week={{ start.isoformat() }}" role="button" class="secondary outline">Menu</a>
+{{ page_head("Shopping list", range_text) }}
+<nav class="row-actions week-nav" aria-label="Week">
+  <a href="/shopping?week={{ prev_week.isoformat() }}" role="button" class="secondary outline">{{ icon("chevron-left") }}Previous</a>
+  <a href="/shopping?week={{ next_week.isoformat() }}" role="button" class="secondary outline">Next{{ icon("chevron-right") }}</a>
+  <a href="/menu?week={{ start.isoformat() }}" role="button" class="contrast">{{ icon("menu") }}Menu</a>
 </nav>
 
 <div id="shopping-body"{% if state in ("updating", "failed") %} hx-get="/shopping?week={{ start.isoformat() }}" hx-trigger="every 10s" hx-select="#shopping-body" hx-swap="outerHTML"{% endif %}>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if dinners %}
-<p class="muted">Dinners: {% for d, dish in dinners %}{{ d | day }} {{ dish.title }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+<p class="muted shopping-meta">Dinners: {% for d, dish in dinners %}{{ d | day }} {{ dish.title }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
 {% else %}
-<p class="muted">No dinners on the menu for this week yet.</p>
+<p class="card-box empty">{{ icon("menu") }}No dinners on the menu for this week yet.</p>
 {% endif %}
 
 {% set build_action = "/shopping/build?week=" ~ start.isoformat() %}
 {% if state == "updating" %}
 <form method="post" action="{{ build_action }}" class="warn">
   Updating shortly… the menu changed since this list was built.
-  <button type="submit">Rebuild now</button>
+  <button type="submit">{{ icon("refresh") }}Rebuild now</button>
 </form>
 {% elif state == "failed" %}
 <form method="post" action="{{ build_action }}" class="warn">
   Couldn't update: {{ saved.last_error }}
-  <button type="submit">Rebuild</button>
+  <button type="submit">{{ icon("refresh") }}Rebuild</button>
 </form>
 {% elif state == "stale" %}
 <form method="post" action="{{ build_action }}" class="warn">
   Out of date — the menu or pantry changed since this list was built.
-  <button type="submit">Rebuild</button>
+  <button type="submit">{{ icon("refresh") }}Rebuild</button>
 </form>
 {% elif state == "none" %}
 <form method="post" action="{{ build_action }}">
-  <button type="submit" {% if not dinners %}disabled{% endif %}>Build list</button>
+  <button type="submit" {% if not dinners %}disabled{% endif %}>{{ icon("shopping") }}Build list</button>
 </form>
 {% endif %}
 
@@ -52,35 +51,44 @@
 </section>
 {% endif %}
 {% set data = saved.data %}
-{% for aisle in data.aisles %}
-<h3>{{ aisle.name }}</h3>
-<ul>
-  {% for it in aisle["items"] %}
-  <li>{{ it.item }}{% if it.quantity %} <strong>{{ it.quantity }}</strong>{% endif %}
-    {% if it["for"] %}<small class="muted">· {{ it["for"] | join(", ") }}</small>{% endif %}</li>
+{% if data.aisles or data.check_you_have or data.no_ingredients %}
+<div class="aisles">
+  {% for aisle in data.aisles %}
+  <article>
+    <h3>{{ aisle.name }}</h3>
+    <ul>
+      {% for it in aisle["items"] %}
+      <li>{{ it.item }}{% if it.quantity %} <strong>{{ it.quantity }}</strong>{% endif %}
+        {% if it["for"] %}<small class="muted">· {{ it["for"] | join(", ") }}</small>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </article>
   {% endfor %}
-</ul>
-{% endfor %}
-{% if data.check_you_have %}
-<h3>Check you have</h3>
-<ul>{% for x in data.check_you_have %}<li>{{ x }}</li>{% endfor %}</ul>
-{% endif %}
-{% if data.no_ingredients %}
-<h3>No ingredients saved</h3>
-<ul>{% for t in data.no_ingredients %}<li>{{ t }}</li>{% endfor %}</ul>
-{% endif %}
-{% if not data.aisles and not data.check_you_have and not data.no_ingredients %}
-<p class="muted">Nothing to buy.</p>
+  {% if data.check_you_have %}
+  <article>
+    <h3>Check you have</h3>
+    <ul>{% for x in data.check_you_have %}<li>{{ x }}</li>{% endfor %}</ul>
+  </article>
+  {% endif %}
+  {% if data.no_ingredients %}
+  <article>
+    <h3>No ingredients saved</h3>
+    <ul>{% for t in data.no_ingredients %}<li>{{ t }}</li>{% endfor %}</ul>
+  </article>
+  {% endif %}
+</div>
+{% else %}
+<p class="card-box empty">{{ icon("check") }}Nothing to buy.</p>
 {% endif %}
 
 <pre id="shopping-text" hidden>{{ text }}</pre>
 <div class="row-actions">
-  <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('shopping-text').textContent).then(() => { this.textContent = 'Copied'; }, () => { this.textContent = 'Copy failed'; })">Copy</button>
+  <button type="button" onclick="const label = this.querySelector('span'); navigator.clipboard.writeText(document.getElementById('shopping-text').textContent).then(() => { label.textContent = 'Copied'; }, () => { label.textContent = 'Copy failed'; })">{{ icon("copy") }}<span>Copy</span></button>
   {% if state == "current" %}
-  <form method="post" action="{{ build_action }}"><button type="submit" class="secondary outline">Rebuild</button></form>
+  <form method="post" action="{{ build_action }}"><button type="submit" class="secondary outline">{{ icon("refresh") }}Rebuild</button></form>
   {% endif %}
+  <span class="muted">Built {{ built_at.strftime("%a %-d %b %H:%M") }}</span>
 </div>
-<p class="muted">Built {{ built_at.strftime("%a %-d %b %H:%M") }}</p>
 {% endif %}
 </div>
 {% endblock %}

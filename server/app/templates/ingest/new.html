@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}Import · Kitchen{% endblock %}
 {% block content %}
-<h1>Import a recipe</h1>
+{{ page_head("Import a recipe") }}
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if duplicate %}<p class="error">Already saved as <a href="/dishes/{{ duplicate.id }}">{{ duplicate.title }}</a></p>{% endif %}
+<div class="card-box form-card">
 <form method="post" action="/imports" enctype="multipart/form-data">
   <label>Link
     <input name="url" type="url" value="{{ url }}" placeholder="Instagram, TikTok, YouTube or a recipe page">
@@ -14,7 +17,8 @@
   <label>Photos or screenshots <small>(up to 10, 10 MB each)</small>
     <input name="images" type="file" accept="image/*" multiple>
   </label>
-  <button type="submit">Import</button>
+  <button type="submit">{{ icon("import") }}Import</button>
 </form>
-<p><a href="/imports/batch">Importing a stack of handwritten recipes?</a></p>
+</div>
+<p><a class="icon-link" href="/imports/batch">{{ icon("pages") }}Importing a stack of handwritten recipes?</a></p>
 {% endblock %}

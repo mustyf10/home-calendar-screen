@@ -1,14 +1,18 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head %}
 {% block title %}Settings · Kitchen{% endblock %}
 {% block content %}
-<h1>Settings</h1>
+{% call page_head("Settings") %}
+  <a href="/preview" role="button" class="contrast">{{ icon("screen") }}Screen preview</a>
+{% endcall %}
 
 <section>
   <h2>Calendars</h2>
   <p class="muted">{{ help }}</p>
   {% if calendars %}
   <div class="overflow-auto">
-  <table>
+  <table class="cal-table">
     <thead><tr><th>Name</th><th>URL</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for row in calendars %}
@@ -35,10 +39,10 @@
   </table>
   </div>
   <form method="post" action="/settings/sync">
-    <button type="submit" class="secondary">Sync now</button>
+    <button type="submit" class="secondary">{{ icon("refresh") }}Sync now</button>
   </form>
   {% else %}
-  <p>No calendars yet.</p>
+  <p class="empty">{{ icon("menu") }}No calendars yet.</p>
   {% endif %}
 
   <h3>Add a calendar</h3>
@@ -52,10 +56,10 @@
              placeholder="https://calendar.google.com/calendar/ical/…"
              {% if error %}aria-invalid="true"{% endif %}>
     </label>
-    <button type="submit">Add calendar</button>
+    <button type="submit">{{ icon("plus") }}Add calendar</button>
   </form>
 
-  <p><a href="/preview">Screen preview</a> · <a href="/display/frame.png">current panel image</a></p>
+  <p class="panel-links"><a href="/display/frame.png">{{ icon("screen") }}current panel image</a></p>
 </section>
 
 <section>
@@ -71,10 +75,10 @@
 
 <section>
   <h2>Backup</h2>
-  <p>Last successful backup: {{ backup_last_ok or "never" }}</p>
+  <p>Last successful backup: <span class="status-pill">{{ backup_last_ok or "never" }}</span></p>
   {% if backup_last_error %}<p class="error">Last error: {{ backup_last_error }}</p>{% endif %}
   <form method="post" action="/settings/backup">
-    <button type="submit" class="secondary">Back up now</button>
+    <button type="submit" class="secondary">{{ icon("refresh") }}Back up now</button>
   </form>
 </section>
 {% endblock %}

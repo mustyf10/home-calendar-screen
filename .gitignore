@@ -4,3 +4,8 @@ __pycache__/
 .data/
 *.pyc
 .DS_Store
+
+# Third-party design reference, not for redistribution
+.impeccable/ref/
+.impeccable/review/
+.impeccable/config.local.json

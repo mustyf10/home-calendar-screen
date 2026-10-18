@@ -1,30 +1,58 @@
 <!doctype html>
-<html lang="en">
+{% from "_icons.html" import icon %}
+{% set path = request.url.path %}
+{# Each link: (href, icon, label, other paths it is current for, shows the drafts badge). #}
+{% set nav_groups = [
+  ("plan", "Plan", [
+    ("/menu", "menu", "Menu", [], false),
+    ("/dishes", "recipes", "Recipes", [], false),
+    ("/shopping", "shopping", "Shopping", [], false),
+  ]),
+  ("manage", "Manage", [
+    ("/imports", "import", "Import", [], true),
+    ("/tags", "tags", "Tags", [], false),
+    ("/settings", "settings", "Settings", ["/preview"], false),
+  ]),
+] %}
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fdf4ee">
   <title>{% block title %}Kitchen{% endblock %}</title>
   <link rel="stylesheet" href="/static/pico.min.css">
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-  <header class="container">
-    <nav>
-      <ul><li><a href="/menu" class="brand"><strong>Kitchen</strong></a></li></ul>
-      <ul class="nav-links">
-        <li><a href="/menu">Menu</a></li>
-        <li><a href="/dishes">Recipes</a></li>
-        <li><a href="/shopping">Shopping</a></li>
-        <li><a href="/imports">Import{% set n = drafts_count() %}{% if n %} <span class="badge">{{ n }}</span>{% endif %}</a></li>
-        <li><a href="/tags">Tags</a></li>
-        <li><a href="/settings">Settings</a></li>
-      </ul>
-    </nav>
-  </header>
-  <main class="container">
-    {% if flash %}<p class="flash">{{ flash }}</p>{% endif %}
-    {% block content %}{% endblock %}
-  </main>
+  <div class="shell">
+    <aside class="rail">
+      <a href="/menu" class="brand"><span class="brand-mark">{{ icon("dinner") }}</span>Kitchen</a>
+      <a href="/dishes/new" class="add-recipe" role="button">{{ icon("plus") }}Add a recipe</a>
+      <nav id="main-nav" aria-label="Main">
+        {% for key, group_label, links in nav_groups %}
+        <div class="nav-group" role="group" aria-labelledby="nav-{{ key }}">
+          <span class="nav-label" id="nav-{{ key }}">{{ group_label }}</span>
+          {% for href, name, label, also, badge in links %}
+          {% set current = path == href or path.startswith(href ~ "/") or path in also %}
+          <a href="{{ href }}"{% if current %} aria-current="page"{% endif %}>
+            {{ icon(name) }}<span>{{ label }}</span>
+            {% if badge %}{% set n = drafts_count() %}{% if n %}<span class="badge">{{ n }}</span>{% endif %}{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </nav>
+      <script>
+        // Phones: the nav is a scrolling pill row; bring the current page's pill into view.
+        { const nav = document.getElementById("main-nav"), cur = nav.querySelector("[aria-current=page]");
+          if (cur && nav.scrollWidth > nav.clientWidth) nav.scrollLeft += cur.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - cur.offsetWidth) / 2; }
+      </script>
+    </aside>
+    <main>
+      {% if flash %}<p class="flash">{{ flash }}</p>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
 </body>
 </html>

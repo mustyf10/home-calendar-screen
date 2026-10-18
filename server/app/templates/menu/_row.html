@@ -1,9 +1,16 @@
+{% from "_icons.html" import icon %}
 {% from "dishes/_macros.html" import chips with context %}
 {% set iso = r.d.isoformat() %}
 {% set row_id = "row-" ~ iso %}
 <div class="menu-row{% if r.is_today %} today{% endif %}" id="{{ row_id }}">
-  <div class="label">{{ r.d | day }}{% if r.is_today %} · Today{% endif %}</div>
-  <div>
+  <div class="label">
+    <span class="visually-hidden">{{ r.d | day }}{% if r.is_today %} · Today{% endif %}</span>
+    <span class="dow" aria-hidden="true">{{ r.d.strftime("%a") }}</span>
+    <span class="dom" aria-hidden="true">{{ r.d.day }}</span>
+    <span class="mon" aria-hidden="true">{{ r.d.strftime("%b") }}</span>
+    {% if r.is_today %}<span class="today-tag" aria-hidden="true">Today</span>{% endif %}
+  </div>
+  <div class="dish-line">
     {% if r.entry.kind == "dish" %}
     <a href="/dishes/{{ r.entry.dish.id }}">{{ r.entry.dish.title }}</a>
     {% if r.entry.dish.type != "dinner" %}<span class="type-badge">{{ TYPE_LABELS[r.entry.dish.type] }}</span>{% endif %}
@@ -22,11 +29,11 @@
     {{ chips(s.tag_names) }}
     <div class="row-actions">
       <button type="button" hx-post="/menu/{{ iso }}" hx-vals='{"dish_id": "{{ s.id }}"}'
-        hx-target="#{{ row_id }}" hx-swap="outerHTML">Accept</button>
+        hx-target="#{{ row_id }}" hx-swap="outerHTML">{{ icon("check") }}Accept</button>
       <form hx-post="/menu/{{ iso }}/roll" hx-target="#{{ row_id }}" hx-swap="outerHTML">
         {% for t in r.tags %}<input type="hidden" name="tags" value="{{ t }}">{% endfor %}
         <input type="hidden" name="exclude" value="{{ r.next_exclude }}">
-        <button type="submit" class="secondary">Re-roll</button>
+        <button type="submit" class="secondary">{{ icon("dice") }}Re-roll</button>
       </form>
       <button type="button" class="secondary outline" hx-get="/menu/{{ iso }}/row"
         hx-target="#{{ row_id }}" hx-swap="outerHTML">Cancel</button>
@@ -67,7 +74,7 @@
     <input type="hidden" name="exclude" value="">
     <small class="muted">Any of the picked tags · none = any dinner</small>
     <div class="row-actions">
-      <button type="submit">🎲 Roll</button>
+      <button type="submit">{{ icon("dice") }}Roll</button>
       <button type="button" class="secondary" hx-get="/menu/{{ iso }}/pick">Choose…</button>
       <button type="button" class="secondary outline" hx-post="/menu/{{ iso }}/takeaway">Takeaway</button>
       <button type="button" class="secondary outline" hx-post="/menu/{{ iso }}/clear">Clear</button>

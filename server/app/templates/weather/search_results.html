@@ -1,15 +1,18 @@
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import list_row %}
 {% if search_error %}<p class="error" role="alert">{{ search_error }}</p>
 {% elif not results %}<p>No matching locations</p>
 {% else %}
 <p>Choose one location for “{{ query }}”:</p>
-{% for location in results %}
-<article>
-  <p><strong>{{ location.name }}</strong>{% if location.region %}, {{ location.region }}{% endif %}, {{ location.country }}<br><small>{{ location.lat }}, {{ location.lon }}</small></p>
-  <form method="post" action="/settings/weather/location">
-    {% for field in ("name", "region", "country", "lat", "lon") %}<input type="hidden" name="{{ field }}" value="{{ location[field] }}">{% endfor %}
-    <button type="submit" class="secondary">Select {{ location.name }}{% if location.region %}, {{ location.region }}{% endif %}</button>
-  </form>
-</article>
-{% endfor %}
+<ul class="list-card">
+  {% for location in results %}
+  {% call list_row(None, location.name ~ (", " ~ location.region if location.region else "") ~ ", " ~ location.country, meta=location.lat ~ ", " ~ location.lon) %}
+    <form method="post" action="/settings/weather/location">
+      {% for field in ("name", "region", "country", "lat", "lon") %}<input type="hidden" name="{{ field }}" value="{{ location[field] }}">{% endfor %}
+      <button type="submit" class="secondary">{{ icon("check") }}Select {{ location.name }}{% if location.region %}, {{ location.region }}{% endif %}</button>
+    </form>
+  {% endcall %}
+  {% endfor %}
+</ul>
 {% endif %}
-<p><a href="/settings#weather">Back to Weather settings</a></p>
+<p><a class="icon-link" href="/settings#weather">{{ icon("chevron-left") }}Back to Weather settings</a></p>

@@ -1,18 +1,20 @@
 {# Expects: form (DishInput), errors (dict), action, submit_label.
    Optional: extra_template — a template included before the submit button (e.g. image upload / picker). #}
 <form method="post" action="{{ action }}" enctype="multipart/form-data">
-  <label>Title
-    <input name="title" value="{{ form.title }}" required {% if errors.title %}aria-invalid="true"{% endif %}>
-    {% if errors.title %}<small class="error">{{ errors.title }}</small>{% endif %}
-  </label>
-  <label>Type
-    <select name="type">
-      {% for key, label in TYPE_LABELS.items() %}
-      <option value="{{ key }}" {% if form.type == key %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
-    {% if errors.type %}<small class="error">{{ errors.type }}</small>{% endif %}
-  </label>
+  <div class="grid">
+    <label>Title
+      <input name="title" value="{{ form.title }}" required {% if errors.title %}aria-invalid="true"{% endif %}>
+      {% if errors.title %}<small class="error">{{ errors.title }}</small>{% endif %}
+    </label>
+    <label>Type
+      <select name="type">
+        {% for key, label in TYPE_LABELS.items() %}
+        <option value="{{ key }}" {% if form.type == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.type %}<small class="error">{{ errors.type }}</small>{% endif %}
+    </label>
+  </div>
   <label>Tags
     <input name="tags_text" value="{{ form.tags_text }}" placeholder="#chicken #rice #biryani">
     <small>Space or comma separated. Include one of #chicken #meat #fish #vege.</small>
@@ -20,12 +22,14 @@
   <label>Description
     <textarea name="description" rows="2">{{ form.description }}</textarea>
   </label>
-  <label>Ingredients <small>(one per line)</small>
-    <textarea name="ingredients_text" rows="8">{{ form.ingredients_text }}</textarea>
-  </label>
-  <label>Steps <small>(one per line)</small>
-    <textarea name="steps_text" rows="8">{{ form.steps_text }}</textarea>
-  </label>
+  <div class="grid">
+    <label>Ingredients <small>(one per line)</small>
+      <textarea name="ingredients_text" rows="8">{{ form.ingredients_text }}</textarea>
+    </label>
+    <label>Steps <small>(one per line)</small>
+      <textarea name="steps_text" rows="8">{{ form.steps_text }}</textarea>
+    </label>
+  </div>
   <div class="grid">
     <label>Servings <input name="servings" value="{{ form.servings }}" inputmode="numeric"></label>
     <label>Total minutes <input name="total_minutes" value="{{ form.total_minutes }}" inputmode="numeric"></label>

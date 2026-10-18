@@ -1,0 +1,37 @@
+{# One stroke weight, 24px grid. Usage: {{ icon("menu") }}. Every name used anywhere must exist here:
+   an unknown name raises UndefinedError (see the macro) and tests/test_icons.py checks every call site. #}
+{% set PATHS = {
+  "menu": '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  "recipes": '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6"/>',
+  "shopping": '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+  "import": '<path d="M12 4v11m0 0-4-4m4 4 4-4M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>',
+  "tags": '<path d="M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3a1 1 0 0 1 0 1.4l-7.3 7.3a1 1 0 0 1-1.4 0z"/><circle cx="8" cy="8" r="1.3"/>',
+  "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
+  "plus": '<path d="M12 5v14M5 12h14"/>',
+  "search": '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+  "clock": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  "serves": '<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M15.5 5.8a3 3 0 0 1 0 5.4M17.5 14.2a5.5 5.5 0 0 1 3 4.8"/>',
+  "all": '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
+  "dinner": '<circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.5"/>',
+  "snack": '<path d="M4 11h16a8 8 0 0 1-16 0z"/><path d="M8 7.5c0-1.5 1.5-1.5 1.5-3M12.5 7.5c0-1.5 1.5-1.5 1.5-3"/>',
+  "dessert": '<path d="M5 12h14v7a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="M5 12a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4M12 8V5"/>',
+  "baking": '<path d="M12 21V8M12 8c-2-.5-3.5-2-3.5-4 2 .5 3.5 2 3.5 4zm0 0c2-.5 3.5-2 3.5-4-2 .5-3.5 2-3.5 4zm0 5c-2-.5-3.5-2-3.5-4 2 .5 3.5 2 3.5 4zm0 0c2-.5 3.5-2 3.5-4-2 .5-3.5 2-3.5 4z"/>',
+  "side": '<path d="M4 11h16v1a8 8 0 0 1-16 0z"/><path d="M8 11c0-3 1.5-5 4-5s4 2 4 5"/>',
+  "chevron-left": '<path d="m15 5-7 7 7 7"/>',
+  "chevron-right": '<path d="m9 5 7 7-7 7"/>',
+  "dice": '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="15" r="1"/><circle cx="15" cy="9" r="1"/><circle cx="9" cy="15" r="1"/>',
+  "check": '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  "close": '<path d="M7 7l10 10M17 7 7 17"/>',
+  "edit": '<path d="M14.5 5.5l4 4M4 20l1-5L15.5 4.5a1.4 1.4 0 0 1 2 0l2 2a1.4 1.4 0 0 1 0 2L9 19z"/>',
+  "archive": '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4"/>',
+  "restore": '<path d="M4.5 9.5h10a5 5 0 0 1 0 10H9"/><path d="m8 5.5-3.5 4 3.5 4"/>',
+  "copy": '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.5"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>',
+  "refresh": '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.5H15"/>',
+  "link": '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  "pages": '<path d="M8 3.5h7l4 4V17a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 17V5A1.5 1.5 0 0 1 8 3.5z"/><path d="M15 3.5v4h4M3.5 8v11A1.5 1.5 0 0 0 5 20.5h9M10 11h5M10 14.5h5"/>',
+  "screen": '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>',
+} %}
+{% macro icon(name) -%}
+{#- PATHS[name] is Undefined for an unknown name; calling .strip() on it raises instead of drawing an empty svg. -#}
+<svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ PATHS[name].strip() | safe }}</svg>
+{%- endmacro %}

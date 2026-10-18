@@ -1,12 +1,14 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_ui.html" import page_head, discard_form %}
 {% block title %}Import · Kitchen{% endblock %}
 {% block content %}
-<h1>{% if job.status == "ready" %}Review recipe{% else %}Import{% endif %}</h1>
-<p class="muted">
-  {% if job.batch_id %}<a href="/imports/batches/{{ job.batch_id }}">Paper batch #{{ job.batch_id }}</a>
-  {% elif job.source_url %}<a href="{{ job.source_url }}" target="_blank" rel="noopener">{{ job.source_url }}</a>
-  {% else %}Upload{% endif %}
-</p>
+{% set source %}
+  {%- if job.batch_id %}<a href="/imports/batches/{{ job.batch_id }}">Paper batch #{{ job.batch_id }}</a>
+  {%- elif job.source_url %}<a href="{{ job.source_url }}" target="_blank" rel="noopener">{{ job.source_url }}</a>
+  {%- else %}Upload{% endif -%}
+{% endset %}
+{{ page_head("Review recipe" if job.status == "ready" else "Import", source) }}
 
 {% if job.status == "ready" %}
   {% if not_recipe %}<p class="warn">This doesn't look like a recipe — check before saving.</p>{% endif %}
@@ -14,13 +16,16 @@
   {% if note %}<p class="warn">{{ note }}</p>{% endif %}
   {% if core_warning %}<p class="warn">{{ core_warning }}</p>{% endif %}
   {% for d in similar %}<p class="warn">Similar recipe already saved: <a href="/dishes/{{ d.id }}">{{ d.title }}</a></p>{% endfor %}
-  {% include "dishes/_form.html" %}
-  <form method="post" action="/imports/{{ job.id }}/discard">
-    <button type="submit" class="secondary outline">Discard draft</button>
-  </form>
+  <div class="card-box form-card">
+    {% include "dishes/_form.html" %}
+  </div>
+  <div class="after-form">
+    {{ discard_form(job.id, "Discard draft") }}
+  </div>
 {% elif job.status == "failed" %}
   <p class="error">{{ job.error }}</p>
   {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <div class="card-box form-card">
   <form method="post" action="/imports/{{ job.id }}/retry" enctype="multipart/form-data">
     <label>Add the caption or recipe text
       <textarea name="text" rows="6">{{ text or "" }}</textarea>
@@ -28,13 +33,14 @@
     <label>Add screenshots or photos <small>(up to 10, 10 MB each)</small>
       <input name="images" type="file" accept="image/*" multiple>
     </label>
-    <button type="submit">Retry</button>
+    <button type="submit">{{ icon("refresh") }}Retry</button>
   </form>
-  <form method="post" action="/imports/{{ job.id }}/discard">
-    <button type="submit" class="secondary outline">Discard</button>
-  </form>
+  </div>
+  <div class="after-form">
+    {{ discard_form(job.id) }}
+  </div>
 {% elif job.status == "discarded" %}
-  <p>This import was discarded. <a href="/imports">Back to imports</a></p>
+  <p class="card-box">This import was discarded. <a href="/imports">Back to imports</a></p>
 {% else %}
   {% include "ingest/_status.html" %}
 {% endif %}
