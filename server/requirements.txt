@@ -9,6 +9,7 @@ anthropic==1.14.0
 yt-dlp==2026.8.19
 curl_cffi==0.16.3
 faster-whisper==1.2.1
+numpy==2.5.4
 playwright==1.64.0
 pillow==12.3.0
 beautifulsoup4==4.15.0

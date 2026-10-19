@@ -4,8 +4,11 @@ yt_dlp and faster_whisper are imported lazily so the app imports without them co
 """
 import logging
 import subprocess
+import wave
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -57,21 +60,37 @@ def _run(args: list[str], timeout: float = 300) -> subprocess.CompletedProcess:
 
 
 def extract_audio(media: Path, tmp: Path) -> Path:
+    """16 kHz mono 16-bit WAV, the format transcribe() reads."""
     audio = tmp / "audio.wav"
-    _run(["ffmpeg", "-nostdin", "-y", "-i", str(media), "-vn", "-ac", "1", "-ar", "16000", str(audio)])
+    _run(["ffmpeg", "-nostdin", "-y", "-i", str(media), "-vn", "-ac", "1", "-ar", "16000",
+          "-c:a", "pcm_s16le", str(audio)])
     return audio
+
+
+def _samples(audio: Path) -> np.ndarray:
+    """Float samples in [-1, 1] from extract_audio's WAV.
+
+    Handing faster-whisper samples rather than a path skips its PyAV decoder, which
+    faster-whisper 1.2.1 calls with an argument PyAV 19 no longer accepts.
+    """
+    with wave.open(str(audio)) as w:
+        if (w.getnchannels(), w.getsampwidth(), w.getframerate()) != (1, 2, 16000):
+            raise ValueError(f"expected 16 kHz mono 16-bit audio, got {audio.name}")
+        frames = w.readframes(w.getnframes())
+    return np.frombuffer(frames, np.int16).astype(np.float32) / 32768.0
 
 
 def transcribe(audio: Path) -> str:
     """Caller must hold app.heavy.heavy_lock."""
     global _whisper_model
+    samples = _samples(audio)
     if _whisper_model is None:
         from faster_whisper import WhisperModel
 
         _whisper_model = WhisperModel(
             "base", device="cpu", compute_type="int8", download_root="/opt/models", cpu_threads=4
         )
-    segments, _info = _whisper_model.transcribe(str(audio), beam_size=1, vad_filter=True)
+    segments, _info = _whisper_model.transcribe(samples, beam_size=1, vad_filter=True)
     return " ".join(s.text.strip() for s in segments).strip()[:TRANSCRIPT_LIMIT]
 
 
