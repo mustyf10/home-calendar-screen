@@ -17,7 +17,7 @@ from app.heavy import heavy_lock
 from app.ingest import images, llm, video, web
 from app.ingest.batch import process_batch
 from app.ingest.jobs import fills_from_source, is_placeholder_title
-from app.ingest.urls import normalize_url, platform_for
+from app.ingest.urls import host, normalize_url, platform_for
 from app.models import DISH_TYPES, Dish, ImportBatch, IngestJob
 from app.tags.service import existing_tag_names, set_dish_tags
 
@@ -26,12 +26,21 @@ log = logging.getLogger(__name__)
 VIDEO_PLATFORMS = ("instagram", "tiktok", "youtube")
 LOCAL_PLATFORMS = ("paper", "upload")
 ACTIVE_JOB_STATUSES = ("fetching", "transcribing", "extracting")
-FETCH_FAILED = (
-    "Couldn't read this link (Instagram often blocks logged-out access). "
-    "Paste the caption or upload screenshots and retry."
-)
 NOT_A_RECIPE = "This doesn't look like a recipe"
 FILLABLE = ("description", "ingredients", "steps", "servings", "total_minutes")
+# platform -> (what couldn't be read, why, what to paste instead)
+_FETCH_FAILED_SOURCE = {
+    "tiktok": ("this TikTok video", "", "the caption"),
+    "instagram": ("this Instagram post", " (Instagram often blocks access without logging in)", "the caption"),
+    "youtube": ("this YouTube video", "", "the description"),
+}
+_WEB_FETCH_FAILED = (" (the site may be down or blocking automated access)", "the recipe text")
+
+
+def fetch_failed_message(platform: str | None, url: str) -> str:
+    """What to tell the user when nothing could be read from the link."""
+    what, why, paste = _FETCH_FAILED_SOURCE.get(platform or "", (host(url) or "this link", *_WEB_FETCH_FAILED))
+    return f"Couldn't read {what}{why}. Paste {paste} or add screenshots, then try again."
 
 
 def recover() -> None:
@@ -149,7 +158,7 @@ async def _process(s, job: IngestJob, tmp: Path) -> None:
         got_something = any((raw["caption"], raw["page_text"], raw["jsonld_recipe"], media))
         if not got_something and not job.user_text.strip() and not job.upload_paths:
             job.raw = raw
-            _fail(s, job, FETCH_FAILED)
+            _fail(s, job, fetch_failed_message(job.platform, job.source_url))
             return
         if source_image:
             raw["image_candidates"].append(source_image)

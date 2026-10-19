@@ -164,7 +164,20 @@ def test_screenshots_are_sent_but_never_become_the_photo(Session, monkeypatch, e
     assert dish.source_url is None
 
 
-def test_fetch_failure_without_text_fails_and_leaves_the_dish(Session, monkeypatch, extract):
+@pytest.mark.parametrize("url, platform, message", [
+    (TIKTOK, "tiktok",
+     "Couldn't read this TikTok video. Paste the caption or add screenshots, then try again."),
+    ("https://www.instagram.com/reel/abc/", "instagram",
+     "Couldn't read this Instagram post (Instagram often blocks access without logging in). "
+     "Paste the caption or add screenshots, then try again."),
+    ("https://youtu.be/abc", "youtube",
+     "Couldn't read this YouTube video. Paste the description or add screenshots, then try again."),
+    ("https://www.bbcgoodfood.com/recipes/daal", "web",
+     "Couldn't read bbcgoodfood.com (the site may be down or blocking automated access). "
+     "Paste the recipe text or add screenshots, then try again."),
+])
+def test_fetch_failure_without_text_fails_with_a_message_for_that_site(
+        Session, monkeypatch, extract, url, platform, message):
     def refuse(url, tmp):
         raise yt_dlp.utils.DownloadError("Unexpected response from webpage request")
 
@@ -173,12 +186,12 @@ def test_fetch_failure_without_text_fails_and_leaves_the_dish(Session, monkeypat
 
     monkeypatch.setattr(video, "fetch_video", refuse)
     monkeypatch.setattr(web, "fetch_page", no_page)
-    dish_id, job_id = make(Session)
+    dish_id, job_id = make(Session, job={"source_url": url, "platform": platform})
 
     s, job, dish = run(Session, job_id)
 
-    assert (job.status, job.error) == ("failed", worker.FETCH_FAILED)
-    assert dish.title == "TikTok recipe" and dish.ingredients == []
+    assert (job.status, job.error) == ("failed", message)
+    assert dish.ingredients == []
     assert "raw" not in extract
 
 
