@@ -324,6 +324,20 @@ def test_drafts_badge_sits_on_the_add_button(client, monkeypatch):
     assert '<span class="badge">3</span>' in add
 
 
+SLIDE_FILES = ["imports/9/slide-01.jpg", "imports/9/slide-02.jpg"]
+
+
+@pytest.mark.parametrize("photo, checked", [(SLIDE_FILES[1], SLIDE_FILES[1]), ("", "")])
+def test_photo_post_draft_preselects_the_slide_claude_picked(client, db, photo, checked):
+    draft = add_job(db, status="ready", platform="tiktok", source_url="https://www.tiktok.com/@cook/video/1",
+                    raw={"image_candidates": SLIDE_FILES},
+                    extracted={"title": "Butter chicken", "type": "dinner", "photo": photo})
+
+    html = client.get(f"/imports/{draft.id}").text
+
+    assert re.findall(r'name="image" value="([^"]*)" checked', html) == [checked]
+
+
 # --- Import folded in ---------------------------------------------------------
 
 @pytest.mark.parametrize("url", ["/imports", "/imports/new"])

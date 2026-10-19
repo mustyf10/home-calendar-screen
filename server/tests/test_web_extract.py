@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pytest
 from bs4 import BeautifulSoup
 
+from app.ingest import web
 from app.ingest.urls import normalize_url
 from app.ingest.web import extract_jsonld_recipe, iso_minutes, parse_page
 
@@ -90,6 +92,50 @@ def test_broken_rehydration_data_is_ignored():
     html = '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{not json</script>'
     page = parse_page(html, "https://www.tiktok.com/@cook/video/1")
     assert (page.og_description, page.og_image) == ("", None)
+
+
+def test_tiktok_photo_post_slides_and_title_come_from_rehydration_data():
+    page = parse_page(_html("tiktok_slideshow.html"), "https://www.tiktok.com/@cook/video/7500000000000000002")
+    assert page.slides == ["https://p16-sign.tiktokcdn.com/slide-1.jpeg", "https://p16-sign.tiktokcdn.com/slide-2.jpeg"]
+    assert page.og_title == "butter chicken recipe <3"
+    assert page.og_description == "this tasted so good #butterchicken #fyp"
+
+
+def test_tiktok_videos_have_no_slides():
+    assert parse_page(_html("tiktok_video.html"), "https://www.tiktok.com/@cook/video/1").slides == []
+
+
+@pytest.mark.parametrize("images", ["true", "1", '{"a": 1}', '[null, "x", {"imageURL": {"urlList": [7]}}]'])
+def test_odd_slide_data_means_no_slides_not_a_crash(images):
+    html = _html("tiktok_slideshow.html").replace('"images":[', f'"images":{images},"was":[')
+    page = parse_page(html, "https://www.tiktok.com/@cook/video/1")
+    assert (page.slides, page.og_title) == ([], "butter chicken recipe <3")
+
+
+
+def test_tiktok_photo_page_is_read_through_its_video_address(monkeypatch):
+    """TikTok's /photo/ page is filled in by the browser; the same post under /video/ carries the slides."""
+    asked = []
+
+    def fetch_page(url):
+        asked.append(url)
+        if "/video/" not in url:  # the short link lands on the /photo/ page
+            return parse_page("<title>TikTok - Make Your Day</title>",
+                              "https://www.tiktok.com/@cook/photo/7500000000000000002?image_index=2")
+        return parse_page(_html("tiktok_slideshow.html"), url)
+
+    monkeypatch.setattr(web, "fetch_page", fetch_page)
+    page = web.fetch_tiktok_page("https://vm.tiktok.com/ZMslides/")
+
+    assert asked == ["https://vm.tiktok.com/ZMslides/", "https://www.tiktok.com/@cook/video/7500000000000000002"]
+    assert len(page.slides) == 2
+
+
+def test_tiktok_video_page_is_fetched_once(monkeypatch):
+    asked = []
+    monkeypatch.setattr(web, "fetch_page", lambda url: asked.append(url) or parse_page(_html("tiktok_video.html"), url))
+    web.fetch_tiktok_page("https://www.tiktok.com/@cook/video/7400000000000000001")
+    assert asked == ["https://www.tiktok.com/@cook/video/7400000000000000001"]
 
 
 def test_page_text_strips_chrome_and_collapses_whitespace():

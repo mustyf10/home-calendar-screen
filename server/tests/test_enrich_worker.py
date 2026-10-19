@@ -36,6 +36,15 @@ def Session(monkeypatch):
     return factory
 
 
+@pytest.fixture(autouse=True)
+def no_web(monkeypatch):
+    """No test reaches TikTok: pages are unavailable unless a test provides one."""
+    def fetch_page(url):
+        raise ValueError("no network in tests")
+
+    monkeypatch.setattr(web, "fetch_page", fetch_page)
+
+
 @pytest.fixture
 def fetched(monkeypatch):
     """yt-dlp returns a caption, canonical URL and thumbnail; no media, so nothing to transcribe."""
@@ -73,9 +82,10 @@ EXTRACTED = {
 def extract(monkeypatch):
     seen = {}
 
-    def fake(raw, user_text, image_paths, platform, existing_tags):
-        seen.update(raw=raw, user_text=user_text, image_paths=image_paths, platform=platform)
-        return dict(seen.get("result", EXTRACTED), tags=list(seen.get("result", EXTRACTED)["tags"]))
+    def fake(raw, user_text, image_paths, platform, existing_tags, slides=()):
+        seen.update(raw=raw, user_text=user_text, image_paths=image_paths, platform=platform, slides=list(slides))
+        result = seen.get("result", EXTRACTED)
+        return dict(result, tags=list(result["tags"]))
 
     monkeypatch.setattr(llm, "extract", fake)
     return seen
@@ -210,6 +220,95 @@ def test_tiktok_page_fallback_feeds_the_caption(Session, monkeypatch, extract):
 
     assert extract["raw"]["caption"] == "Wraps caption"
     assert job.status == "ready" and dish.title == "Crispy garlic chicken wraps"
+
+
+# --- TikTok photo posts: the recipe is written on the slides -----------------
+
+SLIDES = ["https://cdn.example/slide-1.jpeg", "https://cdn.example/slide-2.jpeg", "https://cdn.example/slide-3.jpeg"]
+
+
+@pytest.fixture
+def slideshow(monkeypatch):
+    """A TikTok photo post: three slides (red, green, blue); yt-dlp must not be asked."""
+    colours = dict(zip(SLIDES, ("red", "green", "blue")))
+    page = PageData(url=CANONICAL, canonical_url=CANONICAL, og_title="butter chicken recipe <3",
+                    og_description="so good #fyp", og_image=None, page_text="", jsonld_recipe=None, slides=SLIDES)
+    monkeypatch.setattr(web, "fetch_page", lambda url: page)
+    monkeypatch.setattr(web, "download", lambda url: jpeg_bytes(colours[url]))
+    monkeypatch.setattr(video, "fetch_video", lambda url, tmp: pytest.fail("photo posts have no video to download"))
+
+
+def colour_of(path) -> str:
+    """Which of red/green/blue a test JPEG is (JPEG shifts exact values)."""
+    pixel = Image.open(config.media_dir / path).convert("RGB").getpixel((8, 8))
+    return ("red", "green", "blue")[pixel.index(max(pixel))]
+
+
+def test_slides_are_read_and_claudes_finished_dish_slide_becomes_the_photo(Session, slideshow, extract):
+    extract["result"] = dict(EXTRACTED, photo_slide=1)
+    dish_id, job_id = make(Session)
+
+    s, job, dish = run(Session, job_id)
+
+    assert [colour_of(p) for p in extract["slides"]] == ["red", "green", "blue"]
+    assert extract["image_paths"] == []
+    assert (extract["raw"]["caption"], extract["raw"]["og_title"]) == ("so good #fyp", "butter chicken recipe <3")
+    assert job.status == "ready" and dish.ingredients == ["4 wraps", "500g chicken"]
+    assert colour_of(dish.image_path) == "green"
+
+
+@pytest.mark.parametrize("pick", [None, 3, -1])
+def test_no_photo_when_claude_finds_no_finished_dish_slide(Session, slideshow, extract, pick):
+    extract["result"] = dict(EXTRACTED, photo_slide=pick)
+    dish_id, job_id = make(Session)
+
+    s, job, dish = run(Session, job_id)
+
+    assert job.status == "ready" and dish.image_path is None
+
+
+@pytest.mark.parametrize("pick, colour", [(2, "blue"), (None, None)])
+def test_photo_post_drafts_record_claudes_slide_for_review(Session, slideshow, extract, pick, colour):
+    extract["result"] = dict(EXTRACTED, photo_slide=pick)
+    with Session() as s:
+        job = IngestJob(source_url=TIKTOK, platform="tiktok", status="queued")
+        s.add(job)
+        s.commit()
+
+    asyncio.run(worker.run_job(job.id))
+
+    with Session() as s:
+        job = s.get(IngestJob, job.id)
+        photo = job.extracted["photo"]
+        assert (colour_of(photo) if photo else None) == colour
+        assert len(job.raw["image_candidates"]) == 3
+
+
+def test_slides_that_fail_to_download_are_skipped(Session, slideshow, extract, monkeypatch):
+    def download(url):
+        if url == SLIDES[0]:
+            raise ValueError("expired link")
+        return jpeg_bytes("blue")
+
+    monkeypatch.setattr(web, "download", download)
+    dish_id, job_id = make(Session)
+
+    s, job, dish = run(Session, job_id)
+
+    assert len(extract["slides"]) == 2 and job.status == "ready"
+
+
+def test_tiktok_videos_still_go_through_the_video_download(Session, fetched, extract, monkeypatch):
+    page = PageData(url=CANONICAL, canonical_url=CANONICAL, og_title="", og_description="page caption",
+                    og_image=None, page_text="", jsonld_recipe=None)
+    monkeypatch.setattr(web, "fetch_page", lambda url: page)
+    dish_id, job_id = make(Session)
+
+    s, job, dish = run(Session, job_id)
+
+    assert fetched["video"] == TIKTOK
+    assert extract["raw"]["caption"] == "Crispy garlic chicken wraps. 4 wraps."
+    assert extract["slides"] == []
 
 
 def test_not_a_recipe_fails_without_filling(Session, fetched, extract):

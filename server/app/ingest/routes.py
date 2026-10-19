@@ -125,7 +125,9 @@ def retry_batch(batch_id: int, session: Session = Depends(get_session)):
 def _review_ctx(session: Session, job: IngestJob, form: DishInput, errors: dict, image_choice: str | None) -> dict:
     ex = job.extracted or {}
     candidates = (job.raw or {}).get("image_candidates") or []
-    if image_choice is None:
+    if image_choice is None and "photo" in ex:  # a photo post: the slide Claude picked, or none
+        image_choice = ex["photo"] if ex["photo"] in candidates else ""
+    elif image_choice is None:
         image_choice = "" if job.platform == "paper" or not candidates else candidates[0]
     note = (ex.get("note") or "").strip()
     dup_match = DUP_NOTE.match(note)

@@ -4,8 +4,8 @@ import html
 import json
 import math
 import re
-from dataclasses import dataclass
-from urllib.parse import urljoin, urlsplit
+from dataclasses import dataclass, field
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 from bs4 import BeautifulSoup
@@ -28,6 +28,7 @@ class PageData:
     og_image: str | None
     page_text: str
     jsonld_recipe: dict | None
+    slides: list[str] = field(default_factory=list)  # TikTok photo post images, in order
 
 
 def _client(timeout: float = 20) -> httpx.Client:
@@ -54,6 +55,15 @@ def fetch_page(url: str) -> PageData:
     return parse_page(markup, str(resp.url))
 
 
+def fetch_tiktok_page(url: str) -> PageData:
+    """TikTok's /photo/ page is filled in by the browser; the same post under /video/ carries its data."""
+    page = fetch_page(url)
+    parts = urlsplit(page.url)
+    if not page.slides and "/photo/" in parts.path:
+        page = fetch_page(urlunsplit((parts.scheme, parts.netloc, parts.path.replace("/photo/", "/video/"), "", "")))
+    return page
+
+
 def download(url: str) -> bytes:
     return _get_limited(url, MAX_IMAGE_BYTES)[0]
 
@@ -69,14 +79,16 @@ def parse_page(markup: str | bytes, url: str) -> PageData:
     canonical_url = urljoin(url, (canonical.get("href") if canonical else None) or _meta(soup, "og:url") or url)
     if urlsplit(canonical_url).scheme not in ("http", "https"):
         canonical_url = url
+    image_post = tiktok.get("imagePost") if isinstance(tiktok.get("imagePost"), dict) else {}
     return PageData(
         url=url,
         canonical_url=canonical_url,
-        og_title=_meta(soup, "og:title") or "",
+        og_title=_meta(soup, "og:title") or _text_or_none(image_post.get("title")) or "",
         og_description=_meta(soup, "og:description") or _text_or_none(tiktok.get("desc")) or "",
         og_image=urljoin(url, og_image) if og_image else None,
         page_text=_page_text(soup),
         jsonld_recipe=recipe,
+        slides=_tiktok_slides(image_post),
     )
 
 
@@ -89,6 +101,20 @@ def _tiktok_item(soup: BeautifulSoup) -> dict:
     except (json.JSONDecodeError, TypeError, KeyError):
         return {}
     return item if isinstance(item, dict) else {}
+
+
+def _tiktok_slides(image_post: dict) -> list[str]:
+    """First URL of each photo; TikTok lists mirrors of the same image after it."""
+    slides = []
+    images = image_post.get("images")
+    for image in images if isinstance(images, list) else []:
+        try:
+            url = _text_or_none(image["imageURL"]["urlList"][0])
+        except (KeyError, IndexError, TypeError):
+            url = None
+        if url:
+            slides.append(url)
+    return slides
 
 
 def _text_or_none(value) -> str | None:

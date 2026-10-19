@@ -149,20 +149,22 @@ async def _process(s, job: IngestJob, tmp: Path) -> None:
         "image_candidates": list(job.upload_paths),
     }
     source_image: str | None = None
+    slides: list[str] = []
     keyframes: list[str] = []
     media: Path | None = None
 
     # 1. fetching
     if job.platform not in LOCAL_PLATFORMS and job.source_url:
         _set_status(s, job, "fetching")
-        media, source_image = await _fetch(job, raw, tmp, job_rel)
-        got_something = any((raw["caption"], raw["page_text"], raw["jsonld_recipe"], media))
+        media, source_image, slides = await _fetch(job, raw, tmp, job_rel)
+        got_something = any((raw["caption"], raw["page_text"], raw["jsonld_recipe"], media, slides))
         if not got_something and not job.user_text.strip() and not job.upload_paths:
             job.raw = raw
             _fail(s, job, fetch_failed_message(job.platform, job.source_url))
             return
         if source_image:
             raw["image_candidates"].append(source_image)
+        raw["image_candidates"] += slides
 
     # 2. transcribing (non-fatal)
     if media:
@@ -180,10 +182,16 @@ async def _process(s, job: IngestJob, tmp: Path) -> None:
         [config.media_dir / p for p in llm_order],
         job.platform or "upload",
         existing_tag_names(s),
+        [config.media_dir / p for p in slides],
     )
     url = raw["canonical_url"] or job.source_url
+    photos = ([source_image] if source_image else []) + keyframes
+    if slides:  # only the slide Claude says shows the finished dish
+        pick = extracted.get("photo_slide")
+        photos = [slides[pick]] if isinstance(pick, int) and 0 <= pick < len(slides) else []
+        extracted["photo"] = photos[0] if photos else ""
     if job.dish_id is not None:
-        await _fill_dish(s, job, extracted, raw, url, ([source_image] if source_image else []) + keyframes)
+        await _fill_dish(s, job, extracted, raw, url, photos)
         return
     job.raw = raw
     if url:
@@ -288,8 +296,16 @@ async def _suggest_tags(s, job: IngestJob) -> None:
     s.commit()
 
 
-async def _fetch(job: IngestJob, raw: dict, tmp: Path, job_rel: str) -> tuple[Path | None, str | None]:
-    """Fills raw in place; returns (downloaded media, saved source image rel path)."""
+async def _fetch(job: IngestJob, raw: dict, tmp: Path, job_rel: str) -> tuple[Path | None, str | None, list[str]]:
+    """Fills raw in place; returns (downloaded media, saved source image, saved slides) as rel paths."""
+    page = None
+    if job.platform == "tiktok":  # photo posts aren't videos: yt-dlp can't read them, their page can
+        page = await _page(web.fetch_tiktok_page, job.source_url)
+        if page and page.slides:
+            _from_page(raw, page)
+            slides = await _download_slides(page.slides, job_rel)
+            if slides:
+                return None, None, slides
     media = None
     image_url = None
     fetched_video = False
@@ -304,20 +320,38 @@ async def _fetch(job: IngestJob, raw: dict, tmp: Path, job_rel: str) -> tuple[Pa
         except yt_dlp.utils.DownloadError as e:
             log.info("yt-dlp couldn't fetch %s (%s); trying the web page", job.source_url, e)
     if not fetched_video:
-        try:
-            page = await asyncio.to_thread(web.fetch_page, job.source_url)
-        except (httpx.HTTPError, ValueError) as e:
-            log.info("web fetch failed for %s: %s", job.source_url, e)
-        else:
-            jsonld = page.jsonld_recipe
-            raw["page_text"] = page.page_text
-            raw["jsonld_recipe"] = jsonld
-            raw["og_title"] = page.og_title
-            raw["caption"] = raw["caption"] or page.og_description
-            raw["canonical_url"] = raw["canonical_url"] or page.canonical_url
-            image_url = (jsonld or {}).get("image") or page.og_image
+        page = page or await _page(web.fetch_page, job.source_url)
+        if page:
+            _from_page(raw, page)
+            image_url = (page.jsonld_recipe or {}).get("image") or page.og_image
     source_image = await _download_image(image_url, f"{job_rel}/source.jpg") if image_url else None
-    return media, source_image
+    return media, source_image, []
+
+
+async def _page(fetch, url: str) -> web.PageData | None:
+    try:
+        return await asyncio.to_thread(fetch, url)
+    except (httpx.HTTPError, ValueError) as e:
+        log.info("web fetch failed for %s: %s", url, e)
+        return None
+
+
+def _from_page(raw: dict, page: web.PageData) -> None:
+    raw["page_text"] = page.page_text
+    raw["jsonld_recipe"] = page.jsonld_recipe
+    raw["og_title"] = page.og_title
+    raw["caption"] = raw["caption"] or page.og_description
+    raw["canonical_url"] = raw["canonical_url"] or page.canonical_url
+
+
+async def _download_slides(urls: list[str], job_rel: str) -> list[str]:
+    """Saved slides in order; any that fail to download are left out."""
+    saved = []
+    for n, url in enumerate(urls[:llm.MAX_SLIDES], 1):
+        rel = await _download_image(url, f"{job_rel}/slide-{n:02d}.jpg")
+        if rel:
+            saved.append(rel)
+    return saved
 
 
 async def _download_image(url: str, rel: str) -> str | None:

@@ -37,6 +37,12 @@ PAPER_NOTE = (
     "Transcribe carefully and write [illegible] for anything unreadable."
 )
 
+SLIDES_NOTE = (
+    "The images are the slides of a social media photo post, in order. The recipe is usually written on them: "
+    "read the text on every slide, including small captions. "
+    "Set photo_slide to the number of the slide that best shows the finished dish, or null if none does."
+)
+
 RECIPE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -55,6 +61,12 @@ RECIPE_SCHEMA = {
     "additionalProperties": False,
 }
 
+SLIDES_SCHEMA = {
+    **RECIPE_SCHEMA,
+    "properties": {**RECIPE_SCHEMA["properties"], "photo_slide": {"anyOf": [{"type": "integer"}, {"type": "null"}]}},
+    "required": [*RECIPE_SCHEMA["required"], "photo_slide"],
+}
+
 TAGS_SCHEMA = {
     "type": "object",
     "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
@@ -64,6 +76,7 @@ TAGS_SCHEMA = {
 
 MAX_IMAGES = 8
 MAX_PAPER_PAGES = 20
+MAX_SLIDES = 35  # TikTok's limit per photo post
 
 
 def tag_rules(existing_tags: list[str]) -> str:
@@ -129,31 +142,45 @@ def _jsonld_text(jsonld: dict) -> str:
     return json.dumps(jsonld, ensure_ascii=False, indent=1)
 
 
-def extract(raw: dict, user_text: str, image_paths: list[Path], platform: str, existing_tags: list[str]) -> dict:
-    """image_paths are absolute and already ordered (uploads → keyframes → thumbnail; or paper pages)."""
+def extract(raw: dict, user_text: str, image_paths: list[Path], platform: str, existing_tags: list[str],
+            slides: list[Path] = ()) -> dict:
+    """image_paths are absolute and already ordered (uploads → keyframes → thumbnail; or paper pages).
+
+    slides are a photo post's images; the result's photo_slide is the 0-based index of the one showing the
+    finished dish, or None."""
     if not config.anthropic_api_key:
         result = fallback_extracted(raw, user_text, "AI extraction unavailable (ANTHROPIC_API_KEY not set)")
     else:
-        result = _extract_with_claude(raw, user_text, image_paths, platform, existing_tags)
+        result = _extract_with_claude(raw, user_text, image_paths, platform, existing_tags, list(slides))
     result["tags"] = clean_tags(result.get("tags"), existing_tags)
     return result
 
 
-def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -> dict:
+def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags, slides) -> dict:
     import anthropic
 
     system = EXTRACT_SYSTEM.format(tag_rules=tag_rules(existing_tags))
+    schema = RECIPE_SCHEMA
     extra_note = ""
+    blocks = []
+    if slides:
+        system += "\n\n" + SLIDES_NOTE
+        schema = SLIDES_SCHEMA
+        if len(slides) > MAX_SLIDES:
+            extra_note = f"Only the first {MAX_SLIDES} slides were read"
+        slides = slides[:MAX_SLIDES]
+        for n, path in enumerate(slides, 1):
+            blocks += [{"type": "text", "text": f"Slide {n}"}, llm_image_block(path, 1568)]
     if platform == "paper":
         system += "\n\n" + PAPER_NOTE
         if len(image_paths) > MAX_PAPER_PAGES:
             extra_note = "Only the first 20 pages were read"
-        blocks = [llm_image_block(p, 1568) for p in image_paths[:MAX_PAPER_PAGES]]
+        blocks += [llm_image_block(p, 1568) for p in image_paths[:MAX_PAPER_PAGES]]
     else:
-        blocks = [llm_image_block(p, 1024) for p in image_paths[:MAX_IMAGES]]
+        blocks += [llm_image_block(p, 1024) for p in image_paths[:MAX_IMAGES]]
     content = [{"type": "text", "text": _source_text(raw, user_text)}, *blocks]
     try:
-        out = call_json(system, content, RECIPE_SCHEMA, timeout=180)
+        out = call_json(system, content, schema, timeout=180)
     except (anthropic.APIError, NoResult) as e:
         log_failure(log, "Recipe extraction failed", e)
         return fallback_extracted(raw, user_text, user_message("AI extraction failed", e))
@@ -171,7 +198,13 @@ def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -
         "total_minutes": _int_or_none(out.get("total_minutes")),
         "is_recipe": out.get("is_recipe") is not False,
         "note": note,
+        "photo_slide": _slide_index(out.get("photo_slide"), len(slides)),
     }
+
+
+def _slide_index(number, count: int) -> int | None:
+    """Claude numbers slides from 1; anything that isn't one of them means no photo."""
+    return number - 1 if isinstance(number, int) and not isinstance(number, bool) and 1 <= number <= count else None
 
 
 def suggest_tags(title: str, type: str, description: str, ingredients: list[str], existing_tags: list[str]) -> list[str]:
