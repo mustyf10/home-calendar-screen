@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.calendars import sync
-from app.calendars.ics import owner_email_from_url, parse_events
+from app.calendars.ics import FeedError, owner_email_from_url, parse_events
 from app.models import Calendar, CalendarEvent
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -116,13 +116,13 @@ def test_sync_replaces_rows_and_keeps_them_on_failure(session, monkeypatch):
     assert count >= 8 and cal.last_ok_at and cal.last_error is None
 
     def boom(url):
-        raise ValueError("HTTP 404")
+        raise FeedError("No calendar was found at that address.", detail="HTTP 404")
 
     monkeypatch.setattr(sync, "fetch_ics", boom)
     sync.sync_calendar(session, cal)
     first_since = cal.last_error_since
     sync.sync_calendar(session, cal)
-    assert (cal.last_error, cal.last_error_since) == ("HTTP 404", first_since)
+    assert (cal.last_error, cal.last_error_since) == ("Couldn't update this calendar. No calendar was found at that address.", first_since)
     assert session.query(CalendarEvent).count() == count
 
     monkeypatch.setattr(sync, "fetch_ics", lambda url: (FIXTURES / "weekly.ics").read_bytes())

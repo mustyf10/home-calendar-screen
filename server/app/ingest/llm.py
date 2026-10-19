@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.claude import NoResult, call_json
 from app.config import config
+from app.errors import log_failure, user_message
 from app.ingest.images import llm_image_block
 from app.models import DISH_TYPES
 from app.tags.service import normalize_tag, resolve_tag
@@ -154,8 +155,8 @@ def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -
     try:
         out = call_json(system, content, RECIPE_SCHEMA, timeout=180)
     except (anthropic.APIError, NoResult) as e:
-        log.warning("extraction failed: %s", e)
-        return fallback_extracted(raw, user_text, f"AI extraction failed: {e}")
+        log_failure(log, "Recipe extraction failed", e)
+        return fallback_extracted(raw, user_text, user_message("AI extraction failed", e))
     note = str(out.get("note") or "").strip()
     if extra_note:
         note = f"{note} {extra_note}." if note else f"{extra_note}."

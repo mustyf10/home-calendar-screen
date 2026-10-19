@@ -175,7 +175,9 @@ async def run_once(*, session_factory=SessionLocal, now: datetime | None = None,
         snapshot = await provider(selected, key, now)
     except WeatherError as exc:
         error = str(exc) if str(exc) in SAFE_ERRORS else UNAVAILABLE
-    except Exception:
+        log.warning("Weather refresh failed: %s", error)
+    except Exception as exc:  # class name only: provider errors can carry the keyed URL
+        log.warning("Weather refresh crashed: %s", type(exc).__name__)
         error = UNAVAILABLE
     await asyncio.to_thread(_complete_attempt, session_factory, generation, captured_key, snapshot, error)
     return True

@@ -7,12 +7,14 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.calendars.ics import EventRow, fetch_ics, owner_email_from_url, parse_events
+from app.calendars.ics import EventRow, fetch_ics, log_label, owner_email_from_url, parse_events
 from app.db import SessionLocal
+from app.errors import log_failure, user_message
 from app.models import Calendar, CalendarEvent, utcnow
 
 log = logging.getLogger(__name__)
 SYNC_INTERVAL_S = 900
+FAILED = "Couldn't update this calendar"
 
 
 def sync_window(today: date) -> tuple[date, date]:
@@ -51,8 +53,8 @@ def sync_calendar(session: Session, cal: Calendar) -> None:
     try:
         rows = load_feed(cal.ics_url)
     except Exception as e:  # network, HTTP or parse failure: keep the old rows
-        log.warning("Calendar %s sync failed: %s", cal.id, e)
-        cal.last_error = str(e) or type(e).__name__
+        log_failure(log, f"Calendar {cal.id} ({log_label(cal.ics_url)}) sync failed", e)
+        cal.last_error = user_message(FAILED, e)
         if cal.last_error_since is None:
             cal.last_error_since = utcnow()
         session.commit()

@@ -49,8 +49,27 @@
     </aside>
     <main>
       {% if flash %}<p class="flash">{{ flash }}</p>{% endif %}
+      <p id="request-error" class="flash error" role="alert" hidden></p>
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script>
+    // HTMX drops 4xx/5xx responses by default. Plain-text ones are the server's message for
+    // people, so show it here until the next reload; HTML ones are a route's own error partial,
+    // so swap them in.
+    { const box = document.getElementById("request-error");
+      const show = (text) => { box.textContent = text; box.hidden = false; box.scrollIntoView({block: "nearest"}); };
+      document.addEventListener("htmx:beforeSwap", (e) => {
+        const xhr = e.detail.xhr;
+        if (xhr.status < 400) return;
+        const type = xhr.getResponseHeader("content-type") || "";
+        if (type.startsWith("text/html")) {
+          e.detail.shouldSwap = true; e.detail.isError = false; return;
+        }
+        show(type.startsWith("text/plain") && xhr.responseText.trim() || "Something went wrong. Reload the page and try again.");
+      });
+      document.addEventListener("htmx:sendError", () => show("Couldn't reach the Kitchen app. Check the Wi-Fi, then try again."));
+    }
+  </script>
 </body>
 </html>

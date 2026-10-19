@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app import clock, settings_store
 from app.config import config
 from app.db import SessionLocal
+from app.errors import log_failure, user_message
 
 log = logging.getLogger(__name__)
 RUN_AT = time(3, 30)
@@ -59,7 +60,8 @@ def _prune(today: date) -> None:
 
 def run_backup(session: Session) -> None:
     if not config.backup_dir.is_dir():
-        settings_store.put(session, "backup_last_error", "Backup dir missing")
+        log.warning("Backup skipped: %s is not a directory", config.backup_dir)
+        settings_store.put(session, "backup_last_error", f"The backup folder is missing. Check {config.backup_dir} is mounted.")
         session.commit()
         return
     try:
@@ -68,8 +70,8 @@ def run_backup(session: Session) -> None:
         _mirror_media()
         _prune(today)
     except Exception as e:
-        log.exception("Backup failed")
-        settings_store.put(session, "backup_last_error", f"{type(e).__name__}: {e}")
+        log_failure(log, "Backup failed", e)
+        settings_store.put(session, "backup_last_error", user_message("Backup failed", e))
         session.commit()
         return
     settings_store.put(session, "backup_last_ok_at", datetime.now(timezone.utc).isoformat(timespec="seconds"))

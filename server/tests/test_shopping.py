@@ -116,7 +116,7 @@ def test_diff_lists_quantity_case_and_duplicates():
 def test_build_without_api_key_raises(session, make_dish, serve):
     a = make_dish("A", ingredients=["rice"])
     serve(a, SAT + timedelta(days=1))
-    with pytest.raises(ShoppingError, match="Shopping list needs ANTHROPIC_API_KEY"):
+    with pytest.raises(ShoppingError, match="Set ANTHROPIC_API_KEY"):
         build_list(session, SAT)
 
 
@@ -242,7 +242,7 @@ def test_page_failed_shows_error_and_keeps_polling(session, make_dish, serve, cl
     row.pending_fingerprint = menu_fingerprint(session, SAT)
     session.commit()
     html = client.get(f"/shopping?week={SAT}").text
-    assert "Couldn't update: boom" in html
+    assert "boom" in html
     assert "Updating shortly" not in html
     assert 'hx-trigger="every 10s"' in html
 

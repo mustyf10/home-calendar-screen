@@ -20,6 +20,8 @@ ERROR_CODES = {1002: "Weather API key is missing", 2006: "Weather API key is inv
 for logger_name in ("httpx", "httpcore"):
     logging.getLogger(logger_name).setLevel(logging.WARNING)
 
+log = logging.getLogger(__name__)
+
 
 def validate_location(value: object) -> dict:
     if not isinstance(value, dict):
@@ -106,11 +108,15 @@ async def request_json(path: str, key: str | None, params: dict, *, transport=No
                 error = payload.get("error") if isinstance(payload, dict) else None
                 if isinstance(error, dict):
                     code = error.get("code")
+                    log.warning("WeatherAPI %s returned error code %s (HTTP %s)", path, code if type(code) is int else "(not a number)", response.status_code)
                     raise WeatherError(ERROR_CODES.get(code, UNAVAILABLE) if type(code) is int else UNAVAILABLE)
                 if not 200 <= response.status_code < 300:
+                    log.warning("WeatherAPI %s answered HTTP %s", path, response.status_code)
                     raise WeatherError(http_error)
                 return payload
-    except (httpx.HTTPError, httpx.InvalidURL, UnicodeError, TimeoutError):
+    except (httpx.HTTPError, httpx.InvalidURL, UnicodeError, TimeoutError) as e:
+        # Class name only: httpx messages can carry the URL, and the URL carries the key.
+        log.warning("WeatherAPI %s request failed: %s", path, type(e).__name__)
         raise WeatherError(UNAVAILABLE) from None
 
 

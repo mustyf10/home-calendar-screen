@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
@@ -6,8 +7,10 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import get_session
+from app.errors import log_failure, user_message
 from app.shopping.auto import auto_weeks
 from app.shopping.service import (
+    FAILED,
     NO_KEY_MESSAGE,
     ShoppingError,
     build_list,
@@ -20,6 +23,7 @@ from app.shopping.service import (
 )
 from app.web import render
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -70,6 +74,7 @@ def build(request: Request, week: str = "", session: Session = Depends(get_sessi
     try:
         build_list(session, start)
     except ShoppingError as e:
+        log_failure(log, f"Shopping list build for {start} failed", e)
         session.rollback()
-        return _page(request, session, start, str(e), 400 if str(e) == NO_KEY_MESSAGE else 502)
+        return _page(request, session, start, user_message(FAILED, e), 400 if str(e) == NO_KEY_MESSAGE else 502)
     return RedirectResponse(f"/shopping?week={start.isoformat()}", status_code=303)

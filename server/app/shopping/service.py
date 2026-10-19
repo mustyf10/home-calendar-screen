@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from app import settings_store
 from app.claude import NoResult, call_json
 from app.config import config
+from app.errors import UserFacingError, reason
 from app.models import Dish, MenuEntry, ShoppingList, utcnow
 
 AISLES = ("Produce", "Meat & fish", "Dairy & eggs", "Bakery", "Tins & dry goods", "Frozen", "Other")
-NO_KEY_MESSAGE = "Shopping list needs ANTHROPIC_API_KEY"
+NO_KEY_MESSAGE = "Set ANTHROPIC_API_KEY on the server to build shopping lists."
+FAILED = "Couldn't build the list"
 # Serialises builds so a manual rebuild and the background loop never call Claude together.
 _build_lock = threading.Lock()
 
@@ -50,8 +52,8 @@ LIST_SCHEMA = {
 }
 
 
-class ShoppingError(Exception):
-    pass
+class ShoppingError(UserFacingError):
+    """Why a build failed, in plain language; shown after FAILED."""
 
 
 def week_dinners(session: Session, start: date) -> list[tuple[date, Dish]]:
@@ -111,7 +113,7 @@ def _call_claude(dinners: list[Dish], pantry: str) -> dict:
     try:
         return call_json(_system_prompt(pantry), content, LIST_SCHEMA, timeout=180)
     except (anthropic.APIError, NoResult) as e:
-        raise ShoppingError(f"Couldn't build the list: {e}") from e
+        raise ShoppingError(reason(e), detail=f"{type(e).__name__}: {e}") from e
 
 
 def _order_aisles(raw_aisles: list) -> list[dict]:

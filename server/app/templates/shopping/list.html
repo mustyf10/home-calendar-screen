@@ -27,7 +27,7 @@
 </form>
 {% elif state == "failed" %}
 <form method="post" action="{{ build_action }}" class="warn">
-  Couldn't update: {{ saved.last_error }}
+  {{ saved.last_error }}
   <button type="submit">{{ icon("refresh") }}Rebuild</button>
 </form>
 {% elif state == "stale" %}

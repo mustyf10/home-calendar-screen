@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_ui.html" import page_head %}
+{% block title %}{{ heading }} · Kitchen{% endblock %}
+{% block content %}
+{{ page_head(heading) }}
+<section class="card-box">
+  <p role="alert">{{ message }}</p>
+  <p><a href="/">Back to the menu</a></p>
+</section>
+{% endblock %}

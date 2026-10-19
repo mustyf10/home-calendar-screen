@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.config import config
 from app.db import make_engine
+from app.errors import SEE_LOG
 from app.ingest import llm, video, web, worker
 from app.ingest.web import PageData
 from app.models import Base, Dish, IngestJob
@@ -303,7 +304,7 @@ def test_tags_only_failure_is_reported(Session, monkeypatch):
 
     s, job, dish = run(Session, job_id)
 
-    assert (job.status, job.error) == ("failed", "Couldn't suggest tags: overloaded")
+    assert (job.status, job.error) == ("failed", f"Couldn't suggest tags. {SEE_LOG}")
 
 
 def test_review_drafts_still_wait_for_review(Session, fetched, extract):

@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import SessionLocal
+from app.errors import log_failure, user_message
 from app.models import ShoppingList, utcnow
-from app.shopping.service import ShoppingError, build_list, fingerprint, menu_fingerprint
+from app.shopping.service import FAILED, build_list, fingerprint, menu_fingerprint
 
 log = logging.getLogger(__name__)
 QUIET = timedelta(minutes=5)
@@ -70,9 +71,9 @@ def tick(session: Session, now: datetime, build=build_list) -> list[date]:
             row = session.get(ShoppingList, start)
             row.failed_attempts += 1
             row.last_attempt_at = now
-            row.last_error = str(e) if isinstance(e, ShoppingError) else f"Couldn't build the list: {type(e).__name__}"
+            row.last_error = user_message(FAILED, e)
             session.commit()
-            log.warning("Shopping list rebuild for %s failed: %s", start, e)
+            log_failure(log, f"Shopping list rebuild for {start} failed", e)
     return attempted
 
 

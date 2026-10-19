@@ -58,7 +58,7 @@ def test_missing_backup_dir_records_error(session, dirs, monkeypatch):
     data, dest = dirs
     monkeypatch.setattr(backup, "config", dataclasses.replace(backup.config, backup_dir=dest / "nope"))
     backup.run_backup(session)
-    assert settings_store.get(session, "backup_last_error") == "Backup dir missing"
+    assert "backup folder is missing" in settings_store.get(session, "backup_last_error")
     assert settings_store.get(session, "backup_last_ok_at") is None
     assert not (dest / "nope").exists()
 

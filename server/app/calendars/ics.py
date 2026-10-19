@@ -1,4 +1,5 @@
 """Fetch and normalise ICS feeds (Google Calendar secret iCal URLs)."""
+import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from urllib.parse import unquote, urlsplit
@@ -8,8 +9,47 @@ import httpx
 import icalendar
 import recurring_ical_events
 
+from app.errors import UserFacingError
+
 MAX_BYTES = 10 * 1024 * 1024
 PRIVATE_CLASSES = {"PRIVATE", "CONFIDENTIAL"}
+GOOGLE_HOSTS = {"calendar.google.com", "accounts.google.com"}
+NOT_A_FEED_GOOGLE = (
+    "That's a link to the calendar page, not its feed. In Google Calendar, open the calendar's "
+    "Settings, then copy the \"Secret address in iCal format\"."
+)
+NOT_A_FEED = "That address opened a web page, not a calendar feed. Use the calendar's iCal (.ics) address."
+UNREADABLE = "That address didn't return a calendar the app could read. Use the calendar's iCal (.ics) address."
+INVALID_ADDRESS = "That isn't a valid web address. Check it was copied in full."
+
+
+class FeedError(UserFacingError):
+    """A calendar feed problem the household can act on."""
+
+
+def _status_error(code: int) -> FeedError:
+    detail = f"HTTP {code}"
+    if code in (401, 403):
+        return FeedError("The calendar server refused access. Use the calendar's secret iCal address.", detail)
+    if code == 404:
+        return FeedError("No calendar was found at that address. Check it was copied in full.", detail)
+    return FeedError(f"The calendar server answered with an error ({detail}). Try again later.", detail)
+
+
+def masked_url(url: str) -> str:
+    """Enough of a stored feed address for the settings page to tell feeds apart."""
+    return f"{urlsplit(url).hostname or ''}…{url[-10:]}"
+
+
+def log_label(url: str) -> str:
+    """Names a feed in the log by host and hash: no part of the address's path or query."""
+    try:
+        host = urlsplit(url).hostname or "no host"
+    except ValueError:
+        host = "unparseable address"
+    return f"{host} #{hashlib.sha256(url.encode()).hexdigest()[:8]}"
+
+
 
 
 @dataclass
@@ -28,19 +68,31 @@ def fetch_ics(url: str) -> bytes:
     url = url.strip()
     if url.lower().startswith("webcal://"):
         url = "https://" + url[len("webcal://"):]
-    if urlsplit(url).scheme.lower() not in ("http", "https"):
-        raise ValueError("Only http(s) and webcal URLs are supported")
-    with httpx.Client(timeout=30, follow_redirects=True) as client:
-        with client.stream("GET", url) as resp:
-            if resp.status_code != 200:
-                raise ValueError(f"HTTP {resp.status_code}")
-            chunks, size = [], 0
-            for chunk in resp.iter_bytes():
-                size += len(chunk)
-                if size > MAX_BYTES:
-                    raise ValueError("Calendar feed is larger than 10 MB")
-                chunks.append(chunk)
-    return b"".join(chunks)
+    try:
+        scheme = urlsplit(url).scheme.lower()
+    except ValueError as e:
+        raise FeedError(INVALID_ADDRESS, detail=f"urlsplit: {e}") from e
+    if scheme not in ("http", "https"):
+        raise FeedError("Use an address that starts with https:// or webcal://.", detail=f"scheme {scheme!r}")
+    try:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            with client.stream("GET", url) as resp:
+                if resp.status_code != 200:
+                    raise _status_error(resp.status_code)
+                chunks, size = [], 0
+                for chunk in resp.iter_bytes():
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        raise FeedError("That calendar feed is larger than 10 MB, too big to load.", detail=f"over {MAX_BYTES} bytes")
+                    chunks.append(chunk)
+                final_host = resp.url.host
+    except httpx.InvalidURL as e:
+        raise FeedError(INVALID_ADDRESS, detail=f"httpx: {e}") from e
+    data = b"".join(chunks)
+    if not data.lstrip(b"\xef\xbb\xbf \t\r\n").upper().startswith(b"BEGIN:VCALENDAR"):
+        google = final_host in GOOGLE_HOSTS or urlsplit(url).hostname in GOOGLE_HOSTS
+        raise FeedError(NOT_A_FEED_GOOGLE if google else NOT_A_FEED, detail=f"not iCal: {data[:60]!r} from {final_host}")
+    return data
 
 
 def owner_email_from_url(url: str) -> str | None:
@@ -112,7 +164,10 @@ def parse_events(
     tz: ZoneInfo,
     owner_email: str | None,
 ) -> list[EventRow]:
-    cal = icalendar.Calendar.from_ical(data)
+    try:
+        cal = icalendar.Calendar.from_ical(data)
+    except ValueError as e:
+        raise FeedError(UNREADABLE, detail=f"icalendar: {e}") from e
     rows = []
     for event in recurring_ical_events.of(cal).between(window_start, window_end):
         if str(event.get("STATUS", "")).upper() == "CANCELLED":

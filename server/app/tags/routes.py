@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -10,6 +10,8 @@ router = APIRouter()
 
 
 def _page(request: Request, session: Session, error: str | None = None, status_code: int = 200):
+    if error and request.headers.get("HX-Request"):
+        return PlainTextResponse(error, status_code=status_code)  # base.html shows it
     return render(request, "tags/list.html", {
         "rows": tag_usage(session),
         "core_tags": CORE_TAGS,

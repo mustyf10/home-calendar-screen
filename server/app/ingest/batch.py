@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.claude import NoResult, call_json
 from app.config import config
+from app.errors import log_failure, user_message
 from app.ingest.images import llm_image_block
 from app.models import ImportBatch, IngestJob
 
@@ -79,7 +80,7 @@ def process_batch(session: Session, batch: ImportBatch) -> None:
     batch.error = None
     session.commit()
     if not config.anthropic_api_key:
-        _fail(session, batch, "Handwritten import needs ANTHROPIC_API_KEY")
+        _fail(session, batch, "Handwritten import needs an AI key. Set ANTHROPIC_API_KEY on the server.")
         return
 
     import anthropic
@@ -91,8 +92,8 @@ def process_batch(session: Session, batch: ImportBatch) -> None:
     try:
         raw = call_json(GROUP_SYSTEM, content, GROUPS_SCHEMA, timeout=300)
     except (anthropic.APIError, NoResult) as e:
-        log.warning("batch %s grouping failed: %s", batch.id, e)
-        _fail(session, batch, f"Grouping failed: {e}")
+        log_failure(log, f"Batch {batch.id} grouping failed", e)
+        _fail(session, batch, user_message("Couldn't sort these pages into recipes", e))
         return
 
     groups, unreadable = normalize_groups(raw, len(batch.page_paths))

@@ -1,6 +1,6 @@
 """The /settings page: calendars, pantry staples, backup status."""
+import logging
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -9,22 +9,21 @@ from sqlalchemy.orm import Session
 
 from app import clock, settings_store
 from app.backup import run_backup
+from app.calendars.ics import log_label, masked_url
 from app.calendars.sync import load_feed, store_events, sync_all
 from app.db import get_session
+from app.errors import log_failure, user_message
 from app.models import Calendar
 from app.web import render
 from app.weather.service import settings_context
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 HELP = (
     "In Google Calendar → Settings → (calendar) → Integrate calendar, copy "
     "'Secret address in iCal format'. Changes in Google can take a few hours to appear."
 )
-
-
-def _masked(url: str) -> str:
-    return f"{urlsplit(url).hostname or ''}…{url[-10:]}"
 
 
 def _local(dt: datetime | None) -> str:
@@ -45,7 +44,7 @@ def _page(request: Request, session: Session, status_code: int = 200, **ctx):
         "calendars": [
             {
                 "cal": c,
-                "masked": _masked(c.ics_url),
+                "masked": masked_url(c.ics_url),
                 "last_ok": _local(c.last_ok_at),
                 "error_since": _local(c.last_error_since),
             }
@@ -86,7 +85,8 @@ def add_calendar(
     try:
         rows = load_feed(url)
     except Exception as e:
-        return fail(f"Couldn't load that calendar: {str(e) or type(e).__name__}")
+        log_failure(log, f"Adding calendar {log_label(url)} failed", e)
+        return fail(user_message("Couldn't add that calendar", e))
     cal = Calendar(name=name, ics_url=url)
     session.add(cal)
     session.flush()

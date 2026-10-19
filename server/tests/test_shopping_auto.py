@@ -4,6 +4,7 @@ import pytest
 
 from app import clock, settings_store
 from app.menu.entries import clear
+from app.errors import SEE_LOG
 from app.models import ShoppingList
 from app.shopping.auto import decide, tick
 from app.shopping.service import ShoppingError, fingerprint, menu_fingerprint
@@ -162,7 +163,7 @@ def test_tick_records_failure_and_retries_once(session, make_dish, serve, today,
     tick(session, T0)
     tick(session, m(5))
     row = session.get(ShoppingList, SAT)
-    assert (row.failed_attempts, row.last_error, row.last_attempt_at) == (1, "boom", m(5))
+    assert (row.failed_attempts, row.last_error, row.last_attempt_at) == (1, "Couldn't build the list. boom", m(5))
 
     tick(session, m(19))
     assert len(fake_claude.calls) == 1
@@ -180,4 +181,4 @@ def test_tick_generic_exception_message(session, make_dish, serve, today, fake_c
     serve(a, SAT + timedelta(days=2))
     tick(session, T0)
     tick(session, m(5))
-    assert session.get(ShoppingList, SAT).last_error == "Couldn't build the list: RuntimeError"
+    assert session.get(ShoppingList, SAT).last_error == f"Couldn't build the list. {SEE_LOG}"

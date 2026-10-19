@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 
 from app.config import config
 from app.db import SessionLocal
+from app.errors import log_failure, user_message
 from app.heavy import heavy_lock
 from app.ingest import images, llm, video, web
 from app.ingest.batch import process_batch
@@ -91,7 +92,7 @@ async def run_worker() -> None:
 
 
 def _error(e: Exception) -> str:
-    return f"Import failed: {type(e).__name__}: {e}"
+    return user_message("Couldn't import this recipe", e)
 
 
 def run_batch(batch_id: int) -> None:
@@ -278,7 +279,8 @@ async def _suggest_tags(s, job: IngestJob) -> None:
                 llm.suggest_tags, dish.title, dish.type, dish.description, dish.ingredients, existing_tag_names(s)
             )
         except Exception as e:  # any failure: the recipe is saved; say why there are no tags
-            _fail(s, job, f"Couldn't suggest tags: {e}")
+            log_failure(log, f"Tag suggestion for job {job.id} failed", e)
+            _fail(s, job, user_message("Couldn't suggest tags", e))
             return
         dish = s.get(Dish, job.dish_id, populate_existing=True)
         set_dish_tags(s, dish, dish.tag_names + tags)
