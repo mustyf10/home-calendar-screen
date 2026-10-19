@@ -10,17 +10,17 @@ _PLATFORM_HOSTS = {
 }
 
 
-def _host(url: str) -> str:
-    host = (urlsplit(url.strip()).hostname or "").lower()
-    return host[4:] if host.startswith("www.") else host
+def host(url: str) -> str:
+    """Lowercase hostname without a leading www."""
+    name = (urlsplit(url.strip()).hostname or "").lower()
+    return name[4:] if name.startswith("www.") else name
 
 
 def normalize_url(url: str) -> str:
     parts = urlsplit(url.strip())
-    host = _host(url)
-    netloc = host + (f":{parts.port}" if parts.port else "")
+    netloc = host(url) + (f":{parts.port}" if parts.port else "")
     query = ""
-    if host in ("youtube.com", "m.youtube.com") and parts.path == "/watch":
+    if host(url) in ("youtube.com", "m.youtube.com") and parts.path == "/watch":
         v = parse_qs(parts.query).get("v")
         if v:
             query = urlencode({"v": v[0]})
@@ -30,4 +30,4 @@ def normalize_url(url: str) -> str:
 
 
 def platform_for(url: str) -> str:
-    return _PLATFORM_HOSTS.get(_host(url), "web")
+    return _PLATFORM_HOSTS.get(host(url), "web")

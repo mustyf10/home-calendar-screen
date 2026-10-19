@@ -1,4 +1,8 @@
-"""Background ingest loop: one queued job or batch at a time, oldest first."""
+"""Background ingest loop: one queued job or batch at a time, oldest first.
+
+Draft jobs (no dish) end "ready" for review. Enrichment jobs (dish_id set when queued) fill the blanks of a
+saved recipe and end "ready", or "failed" with a reason the recipe page offers to retry.
+"""
 import asyncio
 import logging
 import tempfile
@@ -12,9 +16,10 @@ from app.db import SessionLocal
 from app.heavy import heavy_lock
 from app.ingest import images, llm, video, web
 from app.ingest.batch import process_batch
-from app.ingest.urls import normalize_url
-from app.models import Dish, ImportBatch, IngestJob
-from app.tags.service import existing_tag_names
+from app.ingest.jobs import fills_from_source, is_placeholder_title
+from app.ingest.urls import normalize_url, platform_for
+from app.models import DISH_TYPES, Dish, ImportBatch, IngestJob
+from app.tags.service import existing_tag_names, set_dish_tags
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +30,8 @@ FETCH_FAILED = (
     "Couldn't read this link (Instagram often blocks logged-out access). "
     "Paste the caption or upload screenshots and retry."
 )
+NOT_A_RECIPE = "This doesn't look like a recipe"
+FILLABLE = ("description", "ingredients", "steps", "servings", "total_minutes")
 
 
 def recover() -> None:
@@ -110,7 +117,15 @@ def _set_status(s, job: IngestJob, status: str) -> None:
     s.commit()
 
 
+def _fail(s, job: IngestJob, error: str) -> None:
+    job.status, job.error = "failed", error
+    s.commit()
+
+
 async def _process(s, job: IngestJob, tmp: Path) -> None:
+    if job.dish_id is not None and not fills_from_source(job):
+        await _suggest_tags(s, job)
+        return
     job_rel = f"imports/{job.id}"
     job_dir = config.media_dir / job_rel
     raw = {
@@ -134,8 +149,7 @@ async def _process(s, job: IngestJob, tmp: Path) -> None:
         got_something = any((raw["caption"], raw["page_text"], raw["jsonld_recipe"], media))
         if not got_something and not job.user_text.strip() and not job.upload_paths:
             job.raw = raw
-            job.status, job.error = "failed", FETCH_FAILED
-            s.commit()
+            _fail(s, job, FETCH_FAILED)
             return
         if source_image:
             raw["image_candidates"].append(source_image)
@@ -158,12 +172,107 @@ async def _process(s, job: IngestJob, tmp: Path) -> None:
         existing_tag_names(s),
     )
     url = raw["canonical_url"] or job.source_url
+    if job.dish_id is not None:
+        await _fill_dish(s, job, extracted, raw, url, ([source_image] if source_image else []) + keyframes)
+        return
+    job.raw = raw
     if url:
         dup = s.scalar(select(Dish).where(Dish.source_url == normalize_url(url)))
         if dup:
             extracted["note"] = f"Already saved as dish #{dup.id}"
-    job.raw = raw
     job.extracted = extracted
+    job.status, job.error = "ready", None
+    s.commit()
+
+
+async def _fill_dish(s, job: IngestJob, ex: dict, raw: dict, url: str | None, photos: list[str]) -> None:
+    """Fills only what is still empty on the recipe as it is now; typed fields always win.
+
+    Awaited work (the photo) happens while the session holds no pending writes, so the worker never sits
+    on SQLite's write lock while a user saves an edit; everything after it is one synchronous transaction.
+    """
+    canonical = normalize_url(url) if url else None
+    dup = s.scalar(select(Dish).where(Dish.source_url == canonical, Dish.id != job.dish_id)) if canonical else None
+    photo = None
+    if not dup and ex.get("is_recipe") is not False and photos:
+        if not s.get(Dish, job.dish_id, populate_existing=True).image_path:
+            photo = await asyncio.to_thread(_dish_photo, photos[0])
+
+    # No awaits from here on.
+    previous = (job.extracted or {}).get("filled") or {}
+    job.raw = raw
+    if dup:
+        job.extracted = {**ex, "filled": previous, "duplicate_dish_id": dup.id}
+        _fail(s, job, f"Already saved as {dup.title}")
+        return
+    if ex.get("is_recipe") is False:
+        job.extracted = {**ex, "filled": previous}
+        _fail(s, job, NOT_A_RECIPE)
+        return
+    dish = s.get(Dish, job.dish_id, populate_existing=True)  # the user may have edited it meanwhile
+    if photo and not dish.image_path:
+        dish.image_path = photo
+    filled = _fill_blanks(dish, job, ex, previous)
+    if canonical:
+        dish.source_url = canonical
+        if dish.source_platform == "manual":
+            dish.source_platform = platform_for(canonical)
+    set_dish_tags(s, dish, dish.tag_names + list(ex.get("tags") or []))
+    job.extracted = {**ex, "filled": {**previous, **filled}}
+    if ex.get("fallback"):  # Claude wasn't available: keep what the scrape gave, offer a retry
+        _fail(s, job, ex.get("note") or "AI extraction unavailable")
+        return
+    job.status, job.error = "ready", None
+    s.commit()
+
+
+def _fill_blanks(dish: Dish, job: IngestJob, ex: dict, previous: dict) -> dict:
+    """Sets empty fields from ex and returns {field: value} written. A field still holding what an earlier run
+    of this job wrote (previous) counts as empty, so a retry after a fallback can replace it; edits win.
+
+    Type has no "empty": while the title is a placeholder the job owns the type the recipe was saved with, and
+    keeps owning it only while it still equals the type the job last recorded."""
+    def untouched(field: str) -> bool:
+        return field in previous and getattr(dish, field) == previous[field]
+
+    filled: dict = {}
+    if is_placeholder_title(dish.title, job.source_url) or untouched("title"):
+        if ex.get("title"):
+            dish.title = filled["title"] = ex["title"]
+        if "type" not in previous or untouched("type"):
+            if not ex.get("fallback") and ex.get("type") in DISH_TYPES:
+                dish.type = ex["type"]
+            filled["type"] = dish.type
+    for field in FILLABLE:
+        value = ex.get(field)
+        if value and (not getattr(dish, field) or untouched(field)):
+            setattr(dish, field, value)
+            filled[field] = value
+    return filled
+
+
+def _dish_photo(rel: str) -> str | None:
+    try:
+        return images.save_dish_image((config.media_dir / rel).read_bytes())
+    except Exception:
+        log.exception("couldn't make a dish photo from %s", rel)
+        return None
+
+
+async def _suggest_tags(s, job: IngestJob) -> None:
+    """A recipe saved with no link, text or screenshots only gets AI tags added to its own."""
+    if config.anthropic_api_key:
+        _set_status(s, job, "extracting")
+        dish = s.get(Dish, job.dish_id)
+        try:
+            tags = await asyncio.to_thread(
+                llm.suggest_tags, dish.title, dish.type, dish.description, dish.ingredients, existing_tag_names(s)
+            )
+        except Exception as e:  # any failure: the recipe is saved; say why there are no tags
+            _fail(s, job, f"Couldn't suggest tags: {e}")
+            return
+        dish = s.get(Dish, job.dish_id, populate_existing=True)
+        set_dish_tags(s, dish, dish.tag_names + tags)
     job.status, job.error = "ready", None
     s.commit()
 

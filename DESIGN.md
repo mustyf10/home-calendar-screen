@@ -262,15 +262,16 @@ Rounded throughout: 5px checkboxes (so multi-select never reads as a radio), 10p
 - Rail Cream pill with a Hairline ring and Cocoa text; core tags are peach, bold and walnut. Hover fills peach. The active tag filter is a core chip with a drawn close icon, labelled "Clear tag filter".
 
 ### Cards / Containers
-- 18px radius, white, Card shadow. Recipe cards have a 4:3 photo (or a peach tile with a cocoa type icon when there is none) and a time pill (cocoa clock plus minutes) at the photo's bottom-left; the title comes first, then the type.
-- **List card:** one white card of hairline-separated rows (imports, batch recipes, location results; the `list_row` macro in `templates/_ui.html`), each with a cream icon tile, a bold title, a muted meta line and actions on the right.
+- 18px radius, white, Card shadow. Recipe cards have a 4:3 photo (or a peach tile with a cocoa type icon when there is none) and a time pill (cocoa clock plus minutes) at the photo's bottom-left; the title comes first, then the type, then an "Importing…" status pill (Rail Cream, Hairline ring) while the recipe fills itself in.
+- **List card:** one white card of hairline-separated rows (batch recipes, location results; the `list_row` macro in `templates/_ui.html`), each with a cream icon tile, a bold title, a muted meta line and actions on the right.
+- **Banners** (`.banner` on `.flash` or `.warn`): a heading line, then a list of links or a small form. Peach `.flash` for progress and things waiting ("Importing…" on a recipe, drafts to review on Add a recipe and Recipes); amber `.warn` when something needs the user ("Couldn't read the link" with caption, screenshots, Try again and Dismiss; failed imports on Recipes).
 - **Shopping aisles:** a grid of small white cards, one per aisle.
 
 ### Inputs / Fields
 - White fill, 1px Biscuit border, 14px radius (search is pill and joined to its button). Focus border is tangerine with a tangerine ring. Placeholders are Clay Muted. File inputs show a peach "Choose file" button on a cream field.
 
 ### Navigation
-- Rail: walnut brand mark, tangerine "Add a recipe", then two labelled groups: **Plan** (Menu, Recipes, Shopping) and **Manage** (Import, Tags, Settings). Links are icon plus label; the current page is a peach pill with walnut text and a tangerine icon. On phones the groups become one scrolling pill row; the group labels stay available to screen readers.
+- Rail: walnut brand mark, tangerine "Add a recipe" (carrying the drafts-to-review count as a white badge with tangerine text), then two labelled groups: **Plan** (Menu, Recipes, Shopping) and **Manage** (Tags, Settings). Links are icon plus label; the current page is a peach pill with walnut text and a tangerine icon. On phones the groups become one scrolling pill row; the group labels stay available to screen readers.
 - Category row on Recipes: icon over label; the selected category is a peach tile with walnut text and a tangerine icon.
 - Week switchers (Menu, Shopping): outline Previous / Next buttons with drawn chevrons, the walnut cross-link on the right.
 

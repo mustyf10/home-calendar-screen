@@ -1,0 +1,14 @@
+{# Drafts on /imports/{id} and handwritten batches not yet sorted. Expects: drafts, batches, status_text. #}
+{% if drafts or batches %}
+<div class="flash banner" role="region" aria-labelledby="review-banner-h">
+  <p id="review-banner-h"><strong>Waiting for you</strong></p>
+  <ul>
+    {% for j in drafts %}
+    <li><a href="/imports/{{ j.id }}">{{ (j.extracted or {}).get("title") or "Untitled draft" }}</a> · {{ "Import failed" if j.status == "failed" else "ready to review" }}</li>
+    {% endfor %}
+    {% for b in batches %}
+    <li><a href="/imports/batches/{{ b.id }}">Paper batch #{{ b.id }}</a> · {{ status_text.get(b.status, b.status) }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}

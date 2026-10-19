@@ -7,6 +7,7 @@ alembic==1.20.0
 httpx==0.28.1
 anthropic==1.14.0
 yt-dlp==2026.8.19
+curl_cffi==0.16.3
 faster-whisper==1.2.1
 playwright==1.64.0
 pillow==12.3.0

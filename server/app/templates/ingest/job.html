@@ -40,7 +40,7 @@
     {{ discard_form(job.id) }}
   </div>
 {% elif job.status == "discarded" %}
-  <p class="card-box">This import was discarded. <a href="/imports">Back to imports</a></p>
+  <p class="card-box">This import was discarded. <a href="/dishes/new">Add a recipe</a></p>
 {% else %}
   {% include "ingest/_status.html" %}
 {% endif %}

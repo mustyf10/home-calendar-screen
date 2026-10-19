@@ -1,10 +1,34 @@
 {# Expects: form (DishInput), errors (dict), action, submit_label.
-   Optional: extra_template — a template included before the submit button (e.g. image upload / picker). #}
+   Optional: extra_template — a template included before the submit button (e.g. image upload / picker);
+   import_fields — Add a recipe: link, caption text (text) and screenshots first, title optional. #}
+{% macro link_field(label, placeholder="") -%}
+  <label>{{ label }}
+    <input name="source_url" value="{{ form.source_url }}" type="url"{% if placeholder %} placeholder="{{ placeholder }}"{% endif %} {% if errors.source_url %}aria-invalid="true"{% endif %}>
+    {% if errors.duplicate %}<small class="error">Already saved as <a href="/dishes/{{ errors.duplicate.id }}">{{ errors.duplicate.title }}</a></small>
+    {% elif errors.source_url %}<small class="error">{{ errors.source_url }}</small>{% endif %}
+  </label>
+{%- endmacro %}
 <form method="post" action="{{ action }}" enctype="multipart/form-data">
+  {% if import_fields %}
+  <fieldset class="import-fields">
+    <legend>From a link, caption or screenshots</legend>
+    <p class="muted">The recipe is saved straight away and fills itself in within a minute or two. Anything you type below is kept.</p>
+    {{ link_field("Link", "Instagram, TikTok, YouTube or a recipe page") }}
+    <label>Caption or recipe text
+      <textarea name="text" rows="4" placeholder="Paste the caption or the recipe if the link won't load">{{ text }}</textarea>
+    </label>
+    <label>Screenshots <small>(up to 10, 10 MB each; used to read the recipe, not as its photo)</small>
+      <input name="images" type="file" accept="image/*" multiple {% if errors.images %}aria-invalid="true"{% endif %}>
+      {% if errors.images %}<small class="error">{{ errors.images }}</small>{% endif %}
+    </label>
+  </fieldset>
+  <h2 class="form-section">Details</h2>
+  {% endif %}
   <div class="grid">
     <label>Title
-      <input name="title" value="{{ form.title }}" required {% if errors.title %}aria-invalid="true"{% endif %}>
-      {% if errors.title %}<small class="error">{{ errors.title }}</small>{% endif %}
+      <input name="title" value="{{ form.title }}"{% if not import_fields %} required{% endif %} {% if errors.title %}aria-invalid="true"{% endif %}>
+      {% if errors.title %}<small class="error">{{ errors.title }}</small>
+      {% elif import_fields %}<small>Leave blank to use the title from the link.</small>{% endif %}
     </label>
     <label>Type
       <select name="type">
@@ -34,11 +58,7 @@
     <label>Servings <input name="servings" value="{{ form.servings }}" inputmode="numeric"></label>
     <label>Total minutes <input name="total_minutes" value="{{ form.total_minutes }}" inputmode="numeric"></label>
   </div>
-  <label>Source link
-    <input name="source_url" value="{{ form.source_url }}" type="url" {% if errors.source_url %}aria-invalid="true"{% endif %}>
-    {% if errors.duplicate %}<small class="error">Already saved as <a href="/dishes/{{ errors.duplicate.id }}">{{ errors.duplicate.title }}</a></small>
-    {% elif errors.source_url %}<small class="error">{{ errors.source_url }}</small>{% endif %}
-  </label>
+  {% if not import_fields %}{{ link_field("Source link") }}{% endif %}
   <label>Notes
     <textarea name="notes" rows="2">{{ form.notes }}</textarea>
   </label>

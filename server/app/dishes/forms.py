@@ -96,10 +96,10 @@ def duplicate_url_dish(session: Session, url: str, exclude_id: int | None = None
     return session.scalar(q)
 
 
-def validate(session: Session, inp: DishInput, dish_id: int | None = None) -> dict:
+def validate(session: Session, inp: DishInput, dish_id: int | None = None, require_title: bool = True) -> dict:
     """Returns {field: message}; 'duplicate' holds the clashing Dish if any."""
     errors: dict = {}
-    if not inp.title:
+    if require_title and not inp.title:
         errors["title"] = "Title is required."
     if inp.type not in DISH_TYPES:
         errors["type"] = "Choose a type."
@@ -113,7 +113,7 @@ def validate(session: Session, inp: DishInput, dish_id: int | None = None) -> di
     return errors
 
 
-def apply(session: Session, dish: Dish, inp: DishInput, extra_tags: list[str] = ()) -> None:
+def apply(session: Session, dish: Dish, inp: DishInput) -> None:
     dish.title = inp.title
     dish.type = inp.type
     dish.description = inp.description
@@ -130,7 +130,7 @@ def apply(session: Session, dish: Dish, inp: DishInput, extra_tags: list[str] = 
         dish.source_url = None
     session.add(dish)
     session.flush()
-    set_dish_tags(session, dish, inp.tags + list(extra_tags))
+    set_dish_tags(session, dish, inp.tags)
 
 
 def core_tag_warning(dish_type: str, tag_names: list[str]) -> str | None:

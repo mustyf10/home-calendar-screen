@@ -1,17 +1,16 @@
 <!doctype html>
 {% from "_icons.html" import icon %}
 {% set path = request.url.path %}
-{# Each link: (href, icon, label, other paths it is current for, shows the drafts badge). #}
+{# Each link: (href, icon, label, other paths it is current for). #}
 {% set nav_groups = [
   ("plan", "Plan", [
-    ("/menu", "menu", "Menu", [], false),
-    ("/dishes", "recipes", "Recipes", [], false),
-    ("/shopping", "shopping", "Shopping", [], false),
+    ("/menu", "menu", "Menu", []),
+    ("/dishes", "recipes", "Recipes", []),
+    ("/shopping", "shopping", "Shopping", []),
   ]),
   ("manage", "Manage", [
-    ("/imports", "import", "Import", [], true),
-    ("/tags", "tags", "Tags", [], false),
-    ("/settings", "settings", "Settings", ["/preview"], false),
+    ("/tags", "tags", "Tags", []),
+    ("/settings", "settings", "Settings", ["/preview"]),
   ]),
 ] %}
 <html lang="en" data-theme="light">
@@ -28,17 +27,16 @@
   <div class="shell">
     <aside class="rail">
       <a href="/menu" class="brand"><span class="brand-mark">{{ icon("dinner") }}</span>Kitchen</a>
-      <a href="/dishes/new" class="add-recipe" role="button">{{ icon("plus") }}Add a recipe</a>
+      {% set draft_count = drafts_count() %}
+      <a href="/dishes/new" class="add-recipe" role="button">{{ icon("plus") }}Add a recipe
+        {%- if draft_count %}<span class="badge">{{ draft_count }}</span><span class="visually-hidden"> ({{ draft_count }} draft{{ "" if draft_count == 1 else "s" }} to review)</span>{% endif %}</a>
       <nav id="main-nav" aria-label="Main">
         {% for key, group_label, links in nav_groups %}
         <div class="nav-group" role="group" aria-labelledby="nav-{{ key }}">
           <span class="nav-label" id="nav-{{ key }}">{{ group_label }}</span>
-          {% for href, name, label, also, badge in links %}
+          {% for href, name, label, also in links %}
           {% set current = path == href or path.startswith(href ~ "/") or path in also %}
-          <a href="{{ href }}"{% if current %} aria-current="page"{% endif %}>
-            {{ icon(name) }}<span>{{ label }}</span>
-            {% if badge %}{% set n = drafts_count() %}{% if n %}<span class="badge">{{ n }}</span>{% endif %}{% endif %}
-          </a>
+          <a href="{{ href }}"{% if current %} aria-current="page"{% endif %}>{{ icon(name) }}<span>{{ label }}</span></a>
           {% endfor %}
         </div>
         {% endfor %}

@@ -70,6 +70,28 @@ def test_og_fallback_without_jsonld():
     assert "color: red" not in page.page_text
 
 
+def test_tiktok_caption_and_cover_come_from_rehydration_data():
+    page = parse_page(_html("tiktok_video.html"), "https://www.tiktok.com/@cook/video/7400000000000000001")
+    assert page.og_description.startswith("Crispy garlic chicken wraps")
+    assert "500g chicken thighs" in page.og_description
+    assert page.og_image == "https://p16-sign.tiktokcdn.com/cover.jpeg"
+
+
+def test_meta_tags_win_over_rehydration_data():
+    html = _html("tiktok_video.html").replace(
+        "<title>", '<meta property="og:description" content="From meta"><title>'
+    )
+    page = parse_page(html, "https://www.tiktok.com/@cook/video/1")
+    assert page.og_description == "From meta"
+    assert page.og_image == "https://p16-sign.tiktokcdn.com/cover.jpeg"
+
+
+def test_broken_rehydration_data_is_ignored():
+    html = '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{not json</script>'
+    page = parse_page(html, "https://www.tiktok.com/@cook/video/1")
+    assert (page.og_description, page.og_image) == ("", None)
+
+
 def test_page_text_strips_chrome_and_collapses_whitespace():
     page = parse_page(_html("recipe_graph.html"), "https://example.com/karahi")
     assert "Our favourite weeknight curry." in page.page_text

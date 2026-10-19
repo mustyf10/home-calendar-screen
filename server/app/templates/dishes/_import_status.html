@@ -1,0 +1,10 @@
+{# The recipe is filling in from its link, text or screenshots. Polls until done, then the page reloads. #}
+{% set from_source = import_job.source_url or import_job.user_text or import_job.upload_paths %}
+<div id="import-status" class="flash banner" role="status" hx-get="/dishes/{{ dish.id }}/import/status" hx-trigger="every 2s" hx-swap="outerHTML">
+  {% if from_source %}
+  <p aria-busy="true"><strong>Importing…</strong> ({{ status_text[import_job.status] | replace("…", "") | lower }})</p>
+  <small>This takes a minute or two. Anything you typed is kept; empty fields fill in.</small>
+  {% else %}
+  <p aria-busy="true"><strong>Suggesting tags…</strong></p>
+  {% endif %}
+</div>

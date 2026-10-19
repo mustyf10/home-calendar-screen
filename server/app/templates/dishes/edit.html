@@ -1,9 +1,14 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% from "_ui.html" import page_head %}
 {% block title %}{{ heading }} · Kitchen{% endblock %}
 {% block content %}
 {{ page_head(heading) }}
+{% if import_fields %}{% include "dishes/_review_banner.html" %}{% endif %}
 <div class="card-box form-card">
   {% include "dishes/_form.html" %}
 </div>
+{% if import_fields %}
+<p><a class="icon-link" href="/imports/batch">{{ icon("pages") }}Adding a stack of handwritten recipes?</a></p>
+{% endif %}
 {% endblock %}

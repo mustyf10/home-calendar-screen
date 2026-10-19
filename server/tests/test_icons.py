@@ -43,7 +43,7 @@ def client(monkeypatch):
 
 
 @pytest.mark.parametrize("url", ["/menu", "/dishes", "/dishes?archived=1", "/dishes/1", "/dishes/new", "/dishes/1/edit",
-                                 "/shopping", "/imports", "/imports/new", "/imports/batch", "/tags", "/settings",
+                                 "/shopping", "/imports/batch", "/tags", "/settings",
                                  "/preview?scenario=busy"])
 def test_pages_render_without_empty_icons(client, url):
     r = client.get(url)

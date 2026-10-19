@@ -63,7 +63,8 @@ def parse_page(markup: str | bytes, url: str) -> PageData:
     recipe = extract_jsonld_recipe(soup)
     if recipe and recipe.get("image"):
         recipe["image"] = urljoin(url, recipe["image"])
-    og_image = _meta(soup, "og:image")
+    tiktok = _tiktok_item(soup)
+    og_image = _meta(soup, "og:image") or _text_or_none((tiktok.get("video") or {}).get("cover"))
     canonical = soup.find("link", rel="canonical")
     canonical_url = urljoin(url, (canonical.get("href") if canonical else None) or _meta(soup, "og:url") or url)
     if urlsplit(canonical_url).scheme not in ("http", "https"):
@@ -72,11 +73,26 @@ def parse_page(markup: str | bytes, url: str) -> PageData:
         url=url,
         canonical_url=canonical_url,
         og_title=_meta(soup, "og:title") or "",
-        og_description=_meta(soup, "og:description") or "",
+        og_description=_meta(soup, "og:description") or _text_or_none(tiktok.get("desc")) or "",
         og_image=urljoin(url, og_image) if og_image else None,
         page_text=_page_text(soup),
         jsonld_recipe=recipe,
     )
+
+
+def _tiktok_item(soup: BeautifulSoup) -> dict:
+    """TikTok video pages carry the caption and cover only in their rehydration JSON, not in meta tags."""
+    script = soup.find("script", id="__UNIVERSAL_DATA_FOR_REHYDRATION__")
+    try:
+        data = json.loads(script.string or "") if script else None
+        item = data["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
+    except (json.JSONDecodeError, TypeError, KeyError):
+        return {}
+    return item if isinstance(item, dict) else {}
+
+
+def _text_or_none(value) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _meta(soup: BeautifulSoup, prop: str) -> str | None:

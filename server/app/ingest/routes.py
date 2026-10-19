@@ -1,7 +1,6 @@
-"""Import pages: review queue, single import, handwritten batches, job review and save."""
+"""Import pages: handwritten batches and draft review. Links, text and screenshots go through Add a recipe."""
 import re
 import shutil
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -9,33 +8,18 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from PIL import Image
-from starlette.datastructures import UploadFile
 
 from app.config import config
 from app.db import get_session
-from app.dishes.forms import DishInput, apply, core_tag_warning, duplicate_url_dish, similar_dishes, validate
-from app.ingest import images
-from app.ingest.urls import platform_for
+from app.dishes.forms import DishInput, apply, core_tag_warning, similar_dishes, validate
+from app.ingest import images, uploads
+from app.ingest.jobs import ACTIVE, STATUS_TEXT
 from app.models import Dish, ImportBatch, IngestJob
 from app.web import render
 
 router = APIRouter()
 
-MB = 1024 * 1024
-MAX_IMPORT_FILES, MAX_IMPORT_BYTES = 10, 10 * MB
-MAX_BATCH_FILES, MAX_BATCH_BYTES = 40, 15 * MB
-ACTIVE = ("queued", "fetching", "transcribing", "extracting")
-STATUS_TEXT = {
-    "queued": "Waiting in the queue…",
-    "fetching": "Fetching the link…",
-    "transcribing": "Transcribing the video…",
-    "extracting": "Reading the recipe…",
-    "grouping": "Sorting the pages into recipes…",
-    "ready": "Ready to review",
-    "failed": "Failed",
-    "discarded": "Discarded",
-    "done": "Done",
-}
+MAX_BATCH_FILES, MAX_BATCH_BYTES = 40, 15 * uploads.MB
 DUP_NOTE = re.compile(r"^Already saved as dish #(\d+)$")
 
 
@@ -57,118 +41,11 @@ def _batch_or_404(session: Session, batch_id: int) -> ImportBatch:
     return batch
 
 
-def _files(form, name: str = "images") -> list[UploadFile]:
-    """Uploaded files, ignoring the empty part browsers send when nothing was chosen."""
-    return [f for f in form.getlist(name) if isinstance(f, UploadFile) and f.filename]
-
-
-async def _read_images(files: list[UploadFile], max_bytes: int) -> tuple[list[tuple[str, bytes]], str | None]:
-    """Returns ([(filename, data)], error) — error is '<filename> is too large or not an image.'"""
-    out = []
-    for f in files:
-        bad = f"{f.filename} is too large or not an image."
-        if (f.size or 0) > max_bytes or (f.content_type and not f.content_type.startswith("image/")):
-            return [], bad
-        data = await f.read()
-        if len(data) > max_bytes or not await run_in_threadpool(images.is_image, data):
-            return [], bad
-        out.append((f.filename, data))
-    return out, None
-
-
-def _ext(filename: str) -> str:
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    return ext if re.fullmatch(r"[a-z0-9]{1,5}", ext) else "jpg"
-
-
-def _save_uploads(job: IngestJob, files: list[tuple[str, bytes]]) -> list[str]:
-    """Writes media/imports/<job_id>/upload-N.<ext>, numbering after any existing uploads."""
-    paths = []
-    start = len(job.upload_paths) + 1
-    for n, (filename, data) in enumerate(files, start=start):
-        rel = f"imports/{job.id}/upload-{n}.{_ext(filename)}"
-        path = config.media_dir / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        paths.append(rel)
-    return paths
-
-
-def _source_label(job: IngestJob) -> str:
-    if job.batch_id:
-        return f"Paper batch #{job.batch_id}"
-    if job.source_url:
-        return (urlsplit(job.source_url).hostname or job.source_url).removeprefix("www.")
-    return "Upload"
-
-
-# --- Queue -------------------------------------------------------------------
-
 @router.get("/imports")
-def queue(request: Request, session: Session = Depends(get_session)):
-    batches = session.scalars(
-        select(ImportBatch).where(ImportBatch.status != "done").order_by(ImportBatch.created_at.desc())
-    ).all()
-    drafts = session.scalars(
-        select(IngestJob)
-        .where(IngestJob.status == "ready", IngestJob.dish_id.is_(None))
-        .order_by(IngestJob.created_at.desc(), IngestJob.id.desc())
-    ).all()
-    in_progress = session.scalars(
-        select(IngestJob).where(IngestJob.status.in_(ACTIVE)).order_by(IngestJob.created_at)
-    ).all()
-    failed = session.scalars(
-        select(IngestJob).where(IngestJob.status == "failed").order_by(IngestJob.updated_at.desc())
-    ).all()
-    return render(request, "ingest/queue.html", {
-        "batches": batches, "drafts": drafts, "in_progress": in_progress, "failed": failed,
-        "source_label": _source_label, "status_text": STATUS_TEXT,
-    })
-
-
-# --- Single import -----------------------------------------------------------
-
 @router.get("/imports/new")
-def new_import(request: Request):
-    return render(request, "ingest/new.html", {"url": "", "text": "", "error": None})
-
-
-@router.post("/imports")
-async def create_import(request: Request, session: Session = Depends(get_session)):
-    form = await request.form()
-    url = (form.get("url") or "").strip()
-    text = (form.get("text") or "").strip()
-    files = _files(form)
-
-    def fail(error: str | None = None, duplicate: Dish | None = None):
-        return render(request, "ingest/new.html",
-                      {"url": url, "text": text, "error": error, "duplicate": duplicate}, 422)
-
-    if not url and not text and not files:
-        return fail("Provide a link, text, or at least one image.")
-    if url and not urlsplit(url).scheme:
-        url = "https://" + url
-    if url and urlsplit(url).scheme not in ("http", "https"):
-        return fail("That doesn't look like a web link.")
-    if dup := duplicate_url_dish(session, url):
-        return fail(duplicate=dup)
-    if len(files) > MAX_IMPORT_FILES:
-        return fail(f"Up to {MAX_IMPORT_FILES} images per import.")
-    uploads, error = await _read_images(files, MAX_IMPORT_BYTES)
-    if error:
-        return fail(error)
-
-    job = IngestJob(
-        source_url=url or None,
-        user_text=text,
-        platform=platform_for(url) if url else "upload",
-        status="queued",
-    )
-    session.add(job)
-    session.flush()
-    job.upload_paths = _save_uploads(job, uploads)
-    session.commit()
-    return _redirect(f"/imports/{job.id}")
+def add_a_recipe():
+    """Import folded into Add a recipe."""
+    return _redirect("/dishes/new")
 
 
 # --- Handwritten batches -----------------------------------------------------
@@ -180,7 +57,7 @@ def new_batch(request: Request):
 
 @router.post("/imports/batch")
 async def create_batch(request: Request, session: Session = Depends(get_session)):
-    files = _files(await request.form())
+    files = uploads.files(await request.form())
 
     def fail(error: str):
         return render(request, "ingest/batch_new.html", {"error": error}, 422)
@@ -302,20 +179,11 @@ async def retry_job(job_id: int, request: Request, session: Session = Depends(ge
         return _redirect(f"/imports/{job.id}")
     form = await request.form()
     text = (form.get("text") or "").strip()
-    files = _files(form)
-    error = None
-    if len(files) > MAX_IMPORT_FILES:
-        error = f"Up to {MAX_IMPORT_FILES} images per import."
-    else:
-        uploads, error = await _read_images(files, MAX_IMPORT_BYTES)
+    added, error = await uploads.read_images(uploads.files(form))
     if error:
         return render(request, "ingest/job.html",
                       {"job": job, "status_text": STATUS_TEXT, "error": error, "text": text}, 422)
-    if text:
-        job.user_text = f"{job.user_text}\n\n{text}".strip()
-    if uploads:
-        job.upload_paths = job.upload_paths + _save_uploads(job, uploads)
-    job.status, job.error = "queued", None
+    uploads.append_to_job(job, text, added)
     session.commit()
     return _redirect(f"/imports/{job.id}")
 
@@ -326,7 +194,7 @@ def discard_job(job_id: int, session: Session = Depends(get_session)):
     if job.dish_id is None:
         job.status = "discarded"
         session.commit()
-    return _redirect("/imports")
+    return _redirect("/dishes/new")
 
 
 @router.post("/imports/{job_id}/save")

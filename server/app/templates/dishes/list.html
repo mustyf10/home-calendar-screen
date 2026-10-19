@@ -4,6 +4,13 @@
 {% from "_ui.html" import page_head %}
 {% block title %}Recipes · Kitchen{% endblock %}
 {% block content %}
+{% if failed_imports %}
+<div class="warn banner" role="region" aria-labelledby="failed-imports-h">
+  <p id="failed-imports-h"><strong>Couldn't fill in {{ failed_imports | length }} recipe{{ "" if failed_imports | length == 1 else "s" }}</strong>. Open one to try again or dismiss it.</p>
+  <ul>{% for d in failed_imports %}<li><a href="/dishes/{{ d.id }}">{{ d.title }}</a></li>{% endfor %}</ul>
+</div>
+{% endif %}
+{% include "dishes/_review_banner.html" %}
 {% call page_head("Archived recipes" if archived else "Recipes", dishes | length ~ " recipe" ~ ("" if dishes | length == 1 else "s")) %}
   {% if archived %}<a href="/dishes" role="button" class="secondary outline">{{ icon("chevron-left") }}Back to recipes</a>
   {% else %}<a href="/dishes?archived=1" role="button" class="secondary outline">{{ icon("archive") }}Archived</a>{% endif %}
@@ -41,6 +48,7 @@
     <div class="card-body">
       <h3><a href="/dishes/{{ d.id }}">{{ d.title }}</a></h3>
       <span class="type-badge">{{ TYPE_LABELS[d.type] }}</span>
+      {% if d.id in importing %}<span class="status-pill" aria-busy="true">Importing…</span>{% endif %}
       {{ chips(d.tag_names) }}
       {% if d.type == "dinner" %}{% set h = history[d.id] %}
       <p class="muted">

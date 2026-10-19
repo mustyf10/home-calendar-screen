@@ -157,6 +157,7 @@ fieldset legend { font-weight: 600; }
 .add-recipe .icon { width: 1.05rem; height: 1.05rem; }
 main { padding: 1.25rem 1rem 3rem; width: 100%; max-width: 76rem; }
 .badge { display: inline-block; min-width: 1.4em; padding: 0 0.45em; border-radius: 999px; background: var(--accent); color: var(--surface); font-size: 0.75em; font-weight: 700; text-align: center; }
+.add-recipe .badge { margin-left: 0.15rem; background: var(--surface); color: var(--accent); }
 @media (min-width: 56rem) {
   .shell { grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-rows: auto;
     background: linear-gradient(to right, var(--rail) calc(var(--rail-w) - 1px), var(--line) 0 var(--rail-w), transparent 0); }
@@ -192,6 +193,17 @@ form.warn { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1re
 form.warn button { width: auto; margin: 0 0 0 auto; padding: 0.45rem 0.9rem; }
 .error { color: var(--danger); }
 .muted { color: var(--muted); font-size: 0.9em; }
+
+/* Banners: import progress, failed imports, drafts waiting for review */
+.banner > * { margin: 0; }
+.banner > * + * { margin-top: 0.4rem; }
+.banner ul { padding-left: 1.1rem; }
+.banner li { margin: 0.15rem 0; }
+.banner small { display: block; color: inherit; }
+.banner form { margin-top: 0.75rem; }
+.banner form .grid { gap: 0 1rem; }
+.banner label { color: inherit; }
+.banner .row-actions { margin-top: 0.25rem; }
 
 /* Chips and badges */
 .chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.35rem 0; padding: 0; list-style: none; }
@@ -259,6 +271,7 @@ form[role=search] input, form[role=search] button { margin: 0; }
 .card-body .muted { margin: 0.35rem 0 0; font-size: 0.82rem; }
 .card-body form { margin-top: 0.5rem; }
 .card-body button { width: auto; margin: 0; padding: 0.4rem 0.8rem; font-size: 0.9rem; }
+.card-body .status-pill { align-self: flex-start; margin: 0.2rem 0; font-size: 0.8rem; }
 @media (min-width: 40rem) {
   .cards { grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr)); gap: 1.1rem; }
   .card-media > a > .icon { width: 3rem; height: 3rem; }
@@ -296,6 +309,10 @@ form[role=search] input, form[role=search] button { margin: 0; }
 /* Forms */
 .form-card { max-width: 48rem; }
 .form-card > form > button[type=submit] { margin-top: 0.5rem; padding-inline: 1.4rem; }
+.import-fields { margin: 0; padding: 0; border: 0; }
+.import-fields legend { margin-bottom: 0.25rem; font-size: 1.05rem; font-weight: 700; }
+.import-fields > p { margin: 0 0 1rem; }
+.form-section { margin: 0.5rem 0 1rem; padding-top: 1.25rem; border-top: 1px solid var(--line); font-size: 1.05rem; }
 .form-card .grid { gap: 0 1rem; }
 .after-form { max-width: 48rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
 .after-form form { margin: 0; }

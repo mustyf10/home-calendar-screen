@@ -90,7 +90,7 @@ def _int_or_none(value) -> int | None:
 
 
 def fallback_extracted(raw: dict, user_text: str, note: str) -> dict:
-    """Best-effort draft built from scraped data when Claude isn't available."""
+    """Best-effort draft built from scraped data when Claude isn't available; marked fallback=True."""
     jsonld = raw.get("jsonld_recipe") or {}
     caption = raw.get("caption") or ""
     text = caption or user_text or ""
@@ -106,6 +106,7 @@ def fallback_extracted(raw: dict, user_text: str, note: str) -> dict:
         "total_minutes": jsonld.get("total_minutes"),
         "is_recipe": True,
         "note": note,
+        "fallback": True,
     }
 
 
@@ -173,7 +174,7 @@ def _extract_with_claude(raw, user_text, image_paths, platform, existing_tags) -
 
 
 def suggest_tags(title: str, type: str, description: str, ingredients: list[str], existing_tags: list[str]) -> list[str]:
-    """Raises on a missing key, an API error, or an unusable answer; the caller flashes the message."""
+    """Raises on a missing key, an API error, or an unusable answer; the worker records the message."""
     if not config.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
     text = "\n\n".join(
