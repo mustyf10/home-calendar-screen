@@ -15,4 +15,5 @@ pillow==12.3.0
 beautifulsoup4==4.15.0
 icalendar==7.3.0
 recurring-ical-events==3.8.2
+uk-bin-collection==0.173.5
 tzdata==2026.5

@@ -1,0 +1,49 @@
+{% from "_icons.html" import icon %}
+<section id="bins">
+  <h2>Bins</h2>
+  <p class="muted">Bin days from your council show on the kitchen screen like calendar events, updated twice a day. Uses <a href="https://github.com/robbrad/UKBinCollectionData" rel="noreferrer">UKBinCollectionData</a>; the postcode is checked with <a href="https://postcodes.io" rel="noreferrer">postcodes.io</a>.</p>
+  {% if bins.error %}<p class="error" role="alert">{{ bins.error }}</p>{% endif %}
+  {% if bins.configured %}
+  <p>Council: <strong>{{ bins.council_name }}</strong></p>
+  {% if bins.upcoming %}
+  <ul>
+    {% for day, types in bins.upcoming %}<li><strong>{{ day }}</strong> · {{ types }}</li>{% endfor %}
+  </ul>
+  {% else %}<p class="muted">No upcoming bin dates yet.</p>{% endif %}
+  <p>Last updated: <span class="status-pill">{{ bins.last_ok or "never" }}</span>.</p>
+  {% if bins.last_error %}<p class="error">Last error: {{ bins.last_error }}</p>{% endif %}
+  <form method="post" action="/settings/bins/refresh">
+    <button type="submit" class="secondary">{{ icon("refresh") }}Update now</button>
+  </form>
+  <form method="post" action="/settings/bins/delete" hx-confirm="Stop showing bins on the screen?" hx-boost="true">
+    <button type="submit" class="secondary outline">{{ icon("close") }}Remove</button>
+  </form>
+  {% endif %}
+  <form method="post" action="/settings/bins">
+    <input type="hidden" name="council_postcode" value="{{ bins.form.postcode }}">
+    <input type="hidden" name="council_house_number" value="{{ bins.form.house_number }}">
+    <label>Postcode
+      <input name="postcode" value="{{ bins.form.postcode }}" required autocomplete="postal-code">
+    </label>
+    <label>House number or name
+      <input name="house_number" value="{{ bins.form.house_number }}" required>
+    </label>
+    {% if bins.choose_council %}
+    <label>Council
+      <select name="council" required>
+        <option value="">Choose your council</option>
+        {% for module, name in bins.choose_council %}<option value="{{ module }}" {% if bins.form.council == module %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endif %}
+    {% if bins.form.council and not bins.choose_council %}<input type="hidden" name="council" value="{{ bins.form.council }}">{% endif %}
+    {% if bins.need_uprn %}
+    <label>UPRN
+      <input name="uprn" value="{{ bins.form.uprn }}" inputmode="numeric" required>
+    </label>
+    {% if bins.note %}<p class="muted">{{ bins.note }}</p>{% endif %}
+    <p class="muted">Your UPRN is your property's reference number. <a href="{{ bins.find_uprn_url }}" rel="noreferrer" target="_blank">Find my UPRN</a></p>
+    {% endif %}
+    <button type="submit">{{ icon("check") }}Save and get bin dates</button>
+  </form>
+</section>

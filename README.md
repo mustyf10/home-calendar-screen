@@ -86,6 +86,15 @@ The server fetches within a few seconds of enabling and every 30 minutes after, 
 
 The offline banner (below) takes precedence over the lowest-left forecast cells; the provider credit sits above it. The display client needs no weather key.
 
+## Bin collections (optional)
+
+In **Settings → Bins**, enter your postcode and house number or name. The app checks the postcode with [postcodes.io](https://postcodes.io), detects the council and asks for a UPRN only if that council needs one, with a link to find it. If detection fails, choose the council from the list. Councils whose scrapers require a web browser are not supported on the kitchen Pi.
+Changing the address re-detects the council and asks for a new UPRN where needed. A failed lookup keeps the chosen council for a retry.
+
+Dates come from [UKBinCollectionData](https://github.com/robbrad/UKBinCollectionData), with no API key or database migration. Every returned bin type appears as an all-day `Bins: …` agenda event and a dot in the month grid; bins collected on the same day share one line. Only council-provided dates are shown—no collection patterns are projected.
+
+Collections refresh twice a day, or with **Update now**. Failed updates keep the last-good dates and retry hourly; after two days of failures the screen shows a warning. **Remove** clears the address, dates and status. Enter the household's address only on the deployed app, never in repository files.
+
 ## Display client (Raspberry Pi + Waveshare 7.5" V2)
 
 1. Flash Raspberry Pi OS Lite 64-bit, enable SSH, attach the HAT.

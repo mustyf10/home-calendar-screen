@@ -1,4 +1,4 @@
-"""The /settings page: calendars, pantry staples, backup status."""
+"""The /settings page: calendars, bins, weather, pantry staples and backup status."""
 import logging
 from datetime import datetime, timezone
 
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import clock, settings_store
 from app.backup import run_backup
+from app.bins.service import settings_context as bins_settings_context
 from app.calendars.ics import log_label, masked_url
 from app.calendars.sync import load_feed, store_events, sync_all
 from app.db import get_session
@@ -56,6 +57,7 @@ def _page(request: Request, session: Session, status_code: int = 200, **ctx):
         "form": {"name": "", "url": ""},
         "error": None,
         "weather": settings_context(session),
+        "bins": bins_settings_context(session),
         **ctx,
     }, status_code=status_code)
 

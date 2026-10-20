@@ -137,6 +137,7 @@ def _data_stamp(session: Session, now: datetime) -> tuple:
         *row,
         settings_store.get(session, "backup_last_ok_at"),
         settings_store.get(session, "backup_last_error"),
+        settings_store.get(session, "bins.collections"),
         # Staleness warnings flip with the passing of time, not only with data changes.
         warning(session, now),
     )
