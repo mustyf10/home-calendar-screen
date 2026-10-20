@@ -6,7 +6,7 @@ A self-hosted household kitchen app:
 - **Weekly dinner menu** (Saturday–Friday) with a "roll the dice" suggester and an automatically rebuilt shopping list.
 - **E-ink display**: a Raspberry Pi with a Waveshare 7.5" V2 panel (800×480, black/white) shows the date, a month grid, upcoming Google Calendar events (secret ICS URLs), this week's dinners and, optionally, a weather forecast.
 
-The server (`server/`, FastAPI + SQLite) renders the panel image. The display client (`display-client/`) is deliberately thin: it pulls `/display/frame.png` every 5 minutes and redraws only when the image changes.
+The server (`server/`, FastAPI + SQLite) renders the panel image. The display client (`display-client/`) pulls `/display/frame.png` every 5 minutes and redraws for changed content, connection status or periodic full-refresh maintenance, subject to the Settings-controlled night pause and refresh safeguards.
 
 **There is no login.** Run it on a private network (home LAN, VPN or tailnet) and never expose it to the internet.
 
@@ -69,11 +69,11 @@ Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM
 
 Screen preview: `/preview` (linked from Settings) shows the panel's HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning, offline-stamp and weather-state controls live in the URL and never affect the real panel.
 
-Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`. Dry-run the client against a local server:
+Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`. Dry-run the client against a local server (disable the night pause in **Settings → Display** if running during the pause; use a separate state directory so the dry-run does not affect the physical client's refresh history):
 
 ```sh
 python3 display-client/frame.py --url http://localhost:8000/display/frame.png \
-  --state-dir /tmp/fstate --quiet-hours off --dry-run --out /tmp/panel.png
+  --state-dir /tmp/fstate --dry-run --out /tmp/panel.png
 ```
 
 ## Weather (optional)
@@ -109,7 +109,13 @@ Collections refresh twice a day, or with **Update now**. Failed updates keep the
 3. Edit `/etc/home-calendar-frame/frame.env`: set `FRAME_URL` to your server's `/display/frame.png`. If you serve HTTPS with a private certificate authority, copy its root certificate to the Pi and set `CA_FILE` to its path; leave `CA_FILE` empty otherwise.
 4. Reboot (picks up SPI and group changes), then `sudo systemctl start home-calendar-frame.service` and `journalctl -u home-calendar-frame -n 20`.
 
-Behaviour: no redraws during `QUIET_HOURS` (default `23:00-06:00`, `off` disables). If the server is unreachable for 60 minutes, the last frame is redrawn with an "Offline since HH:MM" box in the bottom-left corner; the next successful fetch redraws normally. State lives in `/var/lib/home-calendar-frame`. After updating the client code, re-run `install.sh`.
+In **Settings → Display**, enable, disable or change the night pause (initially **23:00–06:00**). Times use the app's `TZ`, including daylight-saving changes, not the display Pi's timezone. The last image stays visible during the pause; the screen is not blanked and the Pi stays on. The client still checks the server every five minutes, so settings changes arrive even while redraws are paused.
+
+All physical redraws are at least **180 seconds apart**, including changed images, offline warnings and recovery. A single normal full redraw is forced after **23 hours 45 minutes**, leaving margin before the manufacturer's 24-hour recommendation even when content is unchanged. It uses the cached image if the server is offline. Maintenance takes priority over the night pause and may happen just before it starts; no extra `Clear()` or blank-screen cycle is added. The driver sleeps after drawing.
+
+After an hour without the server, the next permitted redraw adds an "Offline since HH:MM" warning. Offline maintenance keeps that warning and its original time; successful recovery removes it only when the clean frame is actually redrawn. The last valid schedule, refresh attempts/completions and clean image persist in `/var/lib/home-calendar-frame`. Concurrent invocations are serialized. These timing safeguards require a running Pi, a valid clock and a working panel; they cannot guarantee a refresh during power loss or hardware failure.
+
+**Updating an existing display:** update the server, copy the updated `display-client/` files and re-run `install.sh`. Settings is now the only schedule authority: remove `QUIET_HOURS` from `/etc/home-calendar-frame/frame.env` (the installer preserves this file), and remove any custom `--quiet-hours` argument. The environment variable is no longer read and the CLI option is no longer accepted. Previous cached-image metadata is migrated automatically; a cache without refresh history waits three minutes before its first safety redraw. A new client must receive a valid policy from the updated server before drawing ordinary updates; after that, the cached policy works offline.
 
 ## Release
 

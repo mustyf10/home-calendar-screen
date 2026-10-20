@@ -19,7 +19,7 @@ Household-owned and self-hosted: data stays on a Raspberry Pi, the display is a 
 
 ## Operating Context
 - Server: FastAPI, SQLAlchemy/SQLite, Jinja templates with HTMX, no JS build step. Runs in Docker on a Raspberry Pi 4 behind a reverse proxy.
-- Display client: a thin Raspberry Pi 3B script that fetches a PNG every five minutes; quiet hours 23:00–06:00. No networking beyond that on the client.
+- Display client: a Raspberry Pi 3B script that fetches a PNG every five minutes, including during its Settings-controlled night pause (initially 23:00–06:00 in the app timezone). It enforces three-minute redraw spacing and daily full-refresh maintenance, using cached data offline. No networking beyond the frame request on the client.
 - External services: Anthropic API (recipe handling) and optional WeatherAPI.com (forecast strip, off by default).
 - Surfaces: web UI (calendar, recipes, menu, settings), the e-ink panel (`/display` HTML and its 1-bit PNG), and `/preview` (side-by-side HTML and PNG for QA, linked from Settings).
 

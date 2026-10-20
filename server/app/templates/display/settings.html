@@ -1,0 +1,22 @@
+{% from "_icons.html" import icon %}
+<section id="display">
+  <h2>Display</h2>
+  <p class="muted" id="display-pause-help">Pause normal screen updates at night, using the app timezone: <strong>{{ display.config.timezone }}</strong>. The last image stays visible; the screen is not blanked and the Pi stays on. It keeps checking settings every five minutes.</p>
+  {% if display.error %}<p class="error" role="alert" id="display-error">{{ display.error }}</p>{% endif %}
+  <form method="post" action="/settings/display">
+    <label><input type="checkbox" name="night_enabled" role="switch" aria-describedby="display-pause-help" {% if display.config.night_enabled %}checked{% endif %}> Pause updates at night</label>
+    <div class="grid">
+      <div>
+        <label for="display-night-start">Night pause starts</label>
+        <input id="display-night-start" type="time" name="night_start" value="{{ display.config.night_start }}" required {% if display.error %}aria-invalid="true" aria-describedby="display-error"{% endif %}>
+      </div>
+      <div>
+        <label for="display-night-end">Night pause ends</label>
+        <input id="display-night-end" type="time" name="night_end" value="{{ display.config.night_end }}" required {% if display.error %}aria-invalid="true" aria-describedby="display-error"{% endif %}>
+      </div>
+    </div>
+    <button type="submit">{{ icon("screen") }}Save display settings</button>
+  </form>
+  <p class="muted">Every physical update is at least 180 seconds (three minutes) apart. A full redraw is due daily, even if the image is unchanged or the server is offline. This safety redraw takes priority over the night pause, but never over the minimum spacing; it may happen just before the pause starts. Offline redraws keep the connection warning until a successful recovery update.</p>
+  <p class="muted">These safeguards need the Pi running, a valid clock and a working display; they cannot guarantee timing while it is stopped or without power.</p>
+</section>

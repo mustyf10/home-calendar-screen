@@ -1,115 +1,122 @@
 #!/usr/bin/env python3
-"""Pull the pre-rendered kitchen frame and show it on a Waveshare 7.5" V2 e-ink panel.
+"""Fetch the kitchen frame every five minutes; Settings controls the night pause.
 
-Run every 5 minutes by a systemd timer. Redraws only when the server's ETag changes.
-If the server is unreachable for an hour, the last good image is redrawn with an
-"Offline since HH:MM" stamp so a stale panel is obvious.
+All physical refreshes use the driver's normal full refresh, at least 180 seconds
+apart. Cached frames provide safety maintenance even when the server is offline.
 """
 from __future__ import annotations
 
 import argparse
+import fcntl
+import json
 import logging
 import os
+import re
 import ssl
 import sys
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from dataclasses import asdict, dataclass
+from datetime import datetime, time, timedelta, timezone
+from http.client import HTTPException
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # stamp.py and waveshare_epd live alongside
-from stamp import stamp  # noqa: E402  (shared with the server: server/app/display/stamp.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from stamp import stamp  # noqa: E402
 
 log = logging.getLogger("frame")
-
 SIZE = (800, 480)
-OFFLINE_AFTER = timedelta(minutes=60)
-
-Window = Optional[Tuple[time, time]]
-
-
-# --- pure decision logic -------------------------------------------------
-
-
-def parse_quiet_hours(spec: str) -> Window:
-    """'23:00-06:00' -> (start, end); 'off' -> None."""
-    spec = spec.strip()
-    if spec.lower() == "off":
-        return None
-    try:
-        start, end = spec.split("-")
-        return time.fromisoformat(start.strip()), time.fromisoformat(end.strip())
-    except ValueError:
-        raise ValueError(f"bad quiet hours {spec!r}; expected HH:MM-HH:MM or 'off'") from None
+OFFLINE_AFTER = timedelta(hours=1)
+MIN_INTERVAL = timedelta(seconds=180)
+MAINTENANCE_AFTER = timedelta(hours=23, minutes=45)
+MAX_INTERVAL = timedelta(hours=24)
+POLL_INTERVAL = timedelta(minutes=5)
 
 
-def in_quiet_hours(t: time, window: Window) -> bool:
-    """Start inclusive, end exclusive; a window whose end is before its start wraps midnight."""
-    if window is None:
-        return False
-    start, end = window
-    if start <= end:
-        return start <= t < end
-    return t >= start or t < end
+@dataclass(frozen=True)
+class Policy:
+    night_enabled: bool
+    night_start: str
+    night_end: str
+    timezone: str
 
+    @classmethod
+    def parse(cls, value: str | None) -> Policy | None:
+        try:
+            data = json.loads(value)
+            if not isinstance(data, dict) or type(data.get("night_enabled")) is not bool:
+                return None
+            for key in ("night_start", "night_end"):
+                if not isinstance(data.get(key), str) or not re.fullmatch(r"[0-9]{2}:[0-9]{2}", data[key]):
+                    return None
+                time.fromisoformat(data[key])
+            if data["night_enabled"] and data["night_start"] == data["night_end"]:
+                return None
+            ZoneInfo(data["timezone"])
+            return cls(**{key: data[key] for key in cls.__dataclass_fields__})
+        except (ValueError, TypeError, KeyError, ZoneInfoNotFoundError):
+            return None
 
-@dataclass
-class State:
-    etag: Optional[str]
-    failing_since: Optional[datetime]
-    stamped: bool
-    has_last: bool
+    def paused(self, now: datetime) -> bool:
+        if not self.night_enabled:
+            return False
+        local = now.astimezone(ZoneInfo(self.timezone)).strftime("%H:%M")
+        if self.night_start < self.night_end:
+            return self.night_start <= local < self.night_end
+        return local >= self.night_start or local < self.night_end
+
+    def preventive(self, now: datetime, completed: datetime | None) -> bool:
+        soon = now + POLL_INTERVAL
+        if completed is None or self.paused(now) or not self.paused(soon):
+            return False
+        # Walk in UTC: a DST fold or gap must not change elapsed-time safety.
+        end = soon.replace(second=0, microsecond=0)
+        while self.paused(end):
+            end += timedelta(minutes=1)
+        return completed + MAX_INTERVAL <= end
 
 
 @dataclass
 class Fetched:
     body: bytes
-    etag: Optional[str]
+    etag: str | None
+    policy: Policy | None = None
 
 
 @dataclass
 class NotModified:
-    pass
+    policy: Policy | None = None
 
 
 @dataclass
 class FetchFailed:
     reason: str
+    policy: Policy | None = None
 
 
-FetchResult = Union[Fetched, NotModified, FetchFailed]
+FetchResult = Fetched | NotModified | FetchFailed
+
+
+def utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("clock and persisted timestamps must be timezone-aware")
+    return value.astimezone(timezone.utc)
 
 
 @dataclass
-class Decision:
-    action: str  # draw | unchanged | redraw_last | stamp | fail
-    failing_since: Optional[datetime]  # value to persist
-    exit_code: int
+class State:
+    etag: str | None = None
+    failing_since: datetime | None = None
+    stamped: bool = False
+    policy: Policy | None = None
+    last_attempt: datetime | None = None
+    last_completed: datetime | None = None
 
 
-def request_etag(state: State) -> Optional[str]:
-    """A stamped panel must be redrawn on recovery, so don't let the server answer 304."""
-    return None if state.stamped else state.etag
-
-
-def decide(now: datetime, state: State, result: FetchResult) -> Decision:
-    if isinstance(result, Fetched):
-        return Decision("draw", None, 0)
-    if isinstance(result, NotModified):
-        return Decision("redraw_last" if state.stamped else "unchanged", None, 0)
-    since = state.failing_since or now
-    if not state.stamped and state.has_last and now - since >= OFFLINE_AFTER:
-        return Decision("stamp", since, 1)
-    return Decision("fail", since, 1)
-
-
-# --- state files ---------------------------------------------------------
-
-
-def _read(path: Path) -> Optional[str]:
+def _read(path: Path) -> str | None:
     try:
         return path.read_text().strip() or None
     except FileNotFoundError:
@@ -117,123 +124,181 @@ def _read(path: Path) -> Optional[str]:
 
 
 def load_state(state_dir: Path) -> State:
-    since = _read(state_dir / "failing_since")
+    raw = _read(state_dir / "state.json")
+    if raw is None and not (state_dir / "state.json").exists():
+        # One-time migration of the previous client's visible image metadata.
+        since = _read(state_dir / "failing_since")
+        old_since = datetime.fromisoformat(since) if since else None
+        if old_since is not None and old_since.tzinfo is None:
+            old_since = old_since.astimezone()
+        return State(etag=_read(state_dir / "etag"), failing_since=old_since,
+                     stamped=(state_dir / "stamped").exists())
+    data = json.loads(raw)
+    if not isinstance(data, dict) or set(data) != set(State.__dataclass_fields__):
+        raise ValueError("invalid persisted refresh state; refusing an untracked draw")
+    for key in ("failing_since", "last_attempt", "last_completed"):
+        data[key] = utc(datetime.fromisoformat(data[key])) if data[key] is not None else None
+    data["policy"] = Policy.parse(json.dumps(data.get("policy")))
+    return State(**data)
+
+
+def save_state(state_dir: Path, state: State) -> None:
+    data = asdict(state)
+    for key in ("failing_since", "last_attempt", "last_completed"):
+        data[key] = data[key].isoformat() if data[key] else None
+    tmp = state_dir / "state.json.tmp"
+    with tmp.open("w") as out:
+        json.dump(data, out)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(tmp, state_dir / "state.json")
+    fd = os.open(state_dir, os.O_RDONLY)
     try:
-        failing_since = datetime.fromisoformat(since) if since else None
-    except ValueError:
-        failing_since = None
-    return State(
-        etag=_read(state_dir / "etag"),
-        failing_since=failing_since,
-        stamped=(state_dir / "stamped").exists(),
-        has_last=(state_dir / "last.png").exists(),
-    )
-
-
-def _unlink(path: Path) -> None:
-    path.unlink(missing_ok=True)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    for name in ("etag", "failing_since", "stamped"):
+        (state_dir / name).unlink(missing_ok=True)
 
 
 def save_last(state_dir: Path, img) -> None:
     tmp = state_dir / "last.png.tmp"
-    img.save(tmp, format="PNG")
+    with tmp.open("wb") as out:
+        img.save(out, format="PNG")
+        out.flush()
+        os.fsync(out.fileno())
     os.replace(tmp, state_dir / "last.png")
 
 
-# --- side effects --------------------------------------------------------
-
-
-def fetch(url: str, etag: Optional[str], ca_file: Optional[str]) -> FetchResult:
+def fetch(url: str, etag: str | None, ca_file: str | None) -> FetchResult:
     req = urllib.request.Request(url, headers={"If-None-Match": etag} if etag else {})
     ctx = ssl.create_default_context(cafile=ca_file) if ca_file else None
+    policy = None
     try:
         with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            policy = Policy.parse(resp.headers.get("X-Display-Policy"))
             if resp.status != 200:
-                return FetchFailed(f"HTTP {resp.status}")
-            return Fetched(resp.read(), resp.headers.get("ETag"))
+                return FetchFailed(f"HTTP {resp.status}", policy)
+            return Fetched(resp.read(), resp.headers.get("ETag"), policy)
     except urllib.error.HTTPError as e:
+        policy = Policy.parse(e.headers.get("X-Display-Policy")) if e.headers else None
         if e.code == 304:
-            return NotModified()
-        return FetchFailed(f"HTTP {e.code}")
-    except (urllib.error.URLError, OSError) as e:
-        return FetchFailed(str(getattr(e, "reason", e)))
+            return NotModified(policy)
+        return FetchFailed(f"HTTP {e.code}", policy)
+    except (urllib.error.URLError, OSError, HTTPException) as e:
+        return FetchFailed(str(getattr(e, "reason", e)), policy)
 
 
 def epd_show(img) -> None:
     from waveshare_epd import epd7in5_V2
 
     epd = epd7in5_V2.EPD()
-    epd.init()
-    epd.display(epd.getbuffer(img))
-    epd.sleep()
+    try:
+        epd.init()
+        epd.display(epd.getbuffer(img))
+    finally:
+        epd.sleep()
 
 
 def file_show(out: str) -> Callable:
     def show(img) -> None:
         img.save(out, format="PNG")
-
     return show
-
-
-# --- orchestration -------------------------------------------------------
 
 
 @dataclass
 class Options:
     url: str
-    ca_file: Optional[str]
+    ca_file: str | None
     state_dir: Path
-    quiet: Window
 
 
-def run(opts: Options, now: datetime, fetch: Callable, show: Callable) -> int:
-    if in_quiet_hours(now.time(), opts.quiet):
-        log.info("quiet hours")
-        return 0
-
+def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Callable) -> int:
     from PIL import Image
 
     sd = opts.state_dir
     sd.mkdir(parents=True, exist_ok=True)
-    state = load_state(sd)
-    result = fetch(opts.url, request_etag(state), opts.ca_file)
-    d = decide(now, state, result)
-
-    if d.action == "draw":
-        try:
-            img = Image.open(BytesIO(result.body))
-            img.load()
-        except (OSError, Image.DecompressionBombError) as e:
-            log.error("frame is not a readable image: %s", e)
-            return 2
-        if img.size != SIZE:
-            log.error("unexpected frame size %s, expected %s", img.size, SIZE)
-            return 2
-        img = img.convert("1")
-        show(img)
-        save_last(sd, img)
-        if result.etag:
-            (sd / "etag").write_text(result.etag)
-        else:
-            _unlink(sd / "etag")
-        log.info("displayed new frame (etag %s)", result.etag)
-    elif d.action == "redraw_last":
-        show(Image.open(sd / "last.png").convert("1"))
-        log.info("back online; redrew last frame")
-    elif d.action == "unchanged":
-        log.info("unchanged")
-    else:
-        log.error("fetch failed: %s (failing since %s)", result.reason, d.failing_since.isoformat(timespec="minutes"))
-        (sd / "failing_since").write_text(d.failing_since.isoformat())
-        if d.action == "stamp":
-            show(stamp(Image.open(sd / "last.png").convert("1"), d.failing_since))
-            (sd / "stamped").write_text(now.isoformat())
-            log.info("offline stamp drawn")
-        return d.exit_code
-
-    _unlink(sd / "failing_since")
-    _unlink(sd / "stamped")
-    return d.exit_code
+    # Hold the lock through networking, decisions, driver calls and persistence.
+    with (sd / "refresh.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_state(sd)
+        result = fetch(opts.url, None if state.stamped else state.etag, opts.ca_file)
+        now = utc(clock())  # Never measure the guard before a potentially slow HTTP call.
+        if result.policy is not None:
+            state.policy = result.policy
+        clean = None
+        invalid = False
+        if isinstance(result, Fetched):
+            try:
+                clean = Image.open(BytesIO(result.body))
+                clean.load()
+                if clean.size != SIZE:
+                    raise ValueError(f"unexpected frame size {clean.size}, expected {SIZE}")
+                clean = clean.convert("1")
+            except (OSError, ValueError, Image.DecompressionBombError) as e:
+                log.error("frame is not a readable image: %s", e)
+                result = FetchFailed(str(e), result.policy)
+                invalid = True
+                clean = None
+        failed = isinstance(result, FetchFailed)
+        exit_code = 2 if invalid else int(failed)
+        if failed:
+            state.failing_since = state.failing_since or now
+            log.error("fetch failed: %s", result.reason)
+        elif not state.stamped:
+            state.failing_since = None
+        has_last = (sd / "last.png").exists()
+        # Legacy caches have no physical history. Observe a full guard interval
+        # before the first safety redraw rather than guessing when they were drawn.
+        if has_last and state.last_attempt is None and state.last_completed is None:
+            state.last_attempt = now
+        maintenance = has_last and (state.last_completed is None or
+                                    now - state.last_completed >= MAINTENANCE_AFTER)
+        preventive = bool(has_last and state.policy and
+                          state.policy.preventive(now, state.last_completed))
+        wants_stamp = bool(failed and has_last and not state.stamped and
+                           now - state.failing_since >= OFFLINE_AFTER)
+        needs_draw = (isinstance(result, Fetched) or
+                      (not failed and state.stamped and has_last) or
+                      wants_stamp or maintenance or preventive)
+        history = [t for t in (state.last_attempt, state.last_completed) if t is not None]
+        allowed = not history or now - max(history) >= MIN_INTERVAL
+        scheduled = bool(state.policy and not state.policy.paused(now))
+        # Only cached safety maintenance may draw before learning a valid policy.
+        if not needs_draw or not allowed or not (scheduled or maintenance):
+            save_state(sd, state)
+            return exit_code
+        if state.policy is None and isinstance(result, Fetched):
+            clean = None
+            result = NotModified()  # Only redraw the cached image without a known policy.
+        if clean is None:
+            if not has_last:
+                save_state(sd, state)
+                return exit_code
+            with Image.open(sd / "last.png") as cached:
+                clean = cached.convert("1")
+        offline = failed and (state.stamped or wants_stamp)
+        stamp_time = state.failing_since
+        if stamp_time is not None and state.policy is not None:
+            stamp_time = stamp_time.astimezone(ZoneInfo(state.policy.timezone))
+        visible = stamp(clean, stamp_time) if offline else clean
+        state.last_attempt = now
+        # Conservatively retain warning state if the driver is interrupted.
+        if offline:
+            state.stamped = True
+        save_state(sd, state)  # A failed write must stop us BEFORE invoking hardware.
+        show(visible)
+        completed = utc(clock())
+        state.last_completed = completed
+        if isinstance(result, Fetched):
+            save_last(sd, clean)
+            state.etag = result.etag
+        if not failed:
+            state.stamped = False
+            state.failing_since = None
+        save_state(sd, state)
+        log.info("displayed %s frame", "offline" if offline else "clean")
+        return exit_code
 
 
 def main(argv=None) -> int:
@@ -241,8 +306,6 @@ def main(argv=None) -> int:
     p.add_argument("--url", default=os.environ.get("FRAME_URL"), help="frame PNG URL (env FRAME_URL)")
     p.add_argument("--ca-file", default=os.environ.get("CA_FILE") or None, help="CA bundle for HTTPS (env CA_FILE)")
     p.add_argument("--state-dir", default="/var/lib/home-calendar-frame", type=Path)
-    p.add_argument("--quiet-hours", default=os.environ.get("QUIET_HOURS") or "23:00-06:00",
-                   help="HH:MM-HH:MM with no redraws, or 'off' (env QUIET_HOURS)")
     p.add_argument("--dry-run", action="store_true", help="save to --out instead of driving the panel")
     p.add_argument("--out", help="output PNG path for --dry-run")
     args = p.parse_args(argv)
@@ -250,15 +313,10 @@ def main(argv=None) -> int:
         p.error("--url or FRAME_URL is required")
     if args.dry_run and not args.out:
         p.error("--out is required with --dry-run")
-    try:
-        quiet = parse_quiet_hours(args.quiet_hours)
-    except ValueError as e:
-        p.error(str(e))
-
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    opts = Options(url=args.url, ca_file=args.ca_file, state_dir=args.state_dir, quiet=quiet)
+    opts = Options(url=args.url, ca_file=args.ca_file, state_dir=args.state_dir)
     show = file_show(args.out) if args.dry_run else epd_show
-    return run(opts, datetime.now(), fetch, show)
+    return run(opts, lambda: datetime.now(timezone.utc), fetch, show)
 
 
 if __name__ == "__main__":
