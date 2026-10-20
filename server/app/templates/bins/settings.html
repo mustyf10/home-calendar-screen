@@ -16,7 +16,7 @@
     <button type="submit" class="secondary">{{ icon("refresh") }}Update now</button>
   </form>
   <form method="post" action="/settings/bins/delete" hx-confirm="Stop showing bins on the screen?" hx-boost="true">
-    <button type="submit" class="secondary outline">Remove</button>
+    <button type="submit" class="secondary outline">{{ icon("close") }}Remove</button>
   </form>
   {% endif %}
   <form method="post" action="/settings/bins">
@@ -44,6 +44,6 @@
     {% if bins.note %}<p class="muted">{{ bins.note }}</p>{% endif %}
     <p class="muted">Your UPRN is your property's reference number. <a href="{{ bins.find_uprn_url }}" rel="noreferrer" target="_blank">Find my UPRN</a></p>
     {% endif %}
-    <button type="submit">Save and get bin dates</button>
+    <button type="submit">{{ icon("check") }}Save and get bin dates</button>
   </form>
 </section>
