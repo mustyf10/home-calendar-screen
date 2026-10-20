@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.backup import run_backup_loop
+from app.bins import routes as bins_routes
+from app.bins.service import run_bins_loop
 from app.calendars import routes as calendar_routes
 from app.calendars.sync import run_sync_loop
 from app.config import config
@@ -34,7 +36,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    loops = (run_worker, run_sync_loop, run_backup_loop, run_shopping_loop, run_weather_loop)
+    loops = (run_worker, run_sync_loop, run_backup_loop, run_shopping_loop, run_weather_loop, run_bins_loop)
     tasks = [asyncio.create_task(c()) for c in loops]
     yield
     for t in tasks:
@@ -59,6 +61,7 @@ for module in (
     display_routes,
     preview_routes,
     weather_routes,
+    bins_routes,
 ):
     app.include_router(module.router)
 

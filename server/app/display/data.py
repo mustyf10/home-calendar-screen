@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import settings_store
+from app.bins.service import STALE as BINS_STALE, collections_by_day, load_config, load_status
 from app.clock import fmt_day, week_dates, week_start
 from app.models import Calendar, CalendarEvent, MenuEntry
 from app.weather.forecast import select_weather
@@ -73,6 +74,10 @@ class Event:
     first: date
     last: date  # inclusive
     start: datetime | None  # None for all-day
+
+
+def _bin_events(by_day) -> list[Event]:
+    return [Event("Bins: " + ", ".join(types), day, day, None) for day, types in by_day.items()]
 
 
 def _span(ev: CalendarEvent, tz) -> Event:
@@ -230,6 +235,12 @@ def warning(session: Session, now: datetime, uptime: timedelta | None = None) ->
         oldest = min(failing, key=lambda c: c.last_error_since)
         since = _utc_naive_to_local(oldest.last_error_since, now.tzinfo)
         warnings.append(f"Calendar '{oldest.name}' not updating since {since:%H:%M}")
+    if load_config(session) is not None:
+        error_since = load_status(session)["last_error_since"]
+        if error_since:
+            since = datetime.fromisoformat(error_since).astimezone(now.tzinfo)
+            if now - since > BINS_STALE:
+                warnings.append(f"Bins not updating since {fmt_day(since.date())}")
     last_ok = settings_store.get(session, "backup_last_ok_at")
     if last_ok:
         ok_at = datetime.fromisoformat(last_ok).astimezone(now.tzinfo)
@@ -250,7 +261,10 @@ class DisplayInputs:
 
 def load_inputs(session: Session, now: datetime, uptime: timedelta | None = None) -> DisplayInputs:
     return DisplayInputs(
-        events=[_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))],
+        events=[
+            *[_span(ev, now.tzinfo) for ev in session.scalars(select(CalendarEvent))],
+            *_bin_events(collections_by_day(session)),
+        ],
         menu=_menu(session, now.date()),
         warning=warning(session, now, uptime),
         weather=load_weather(session),

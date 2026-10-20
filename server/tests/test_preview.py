@@ -194,6 +194,26 @@ def test_version_changes_on_calendar_sync(session):
     assert version(session, params()) != before
 
 
+def test_bin_refresh_and_removal_invalidate_real_preview(session):
+    from app.bins.service import clear, store
+
+    cfg = {"council": "YorkCouncil", "postcode": "YO10 3DD", "house_number": "1", "uprn": "100050535540"}
+    p = params("at=2026-10-21T09:00")
+    store(session, cfg, [{"type": "RECYCLING", "date": "2026-10-22"}])
+    session.commit()
+    before = version(session, p)
+    assert "Bins: RECYCLING" in [line.text for line in preview_model(session, p)[0].agenda]
+    store(session, cfg, [{"type": "REFUSE", "date": "2026-10-29"}])
+    session.commit()
+    after = version(session, p)
+    assert after != before
+    assert "Bins: REFUSE" in [line.text for line in preview_model(session, p)[0].agenda]
+    clear(session)
+    session.commit()
+    assert version(session, p) != after
+    assert not any(line.text.startswith("Bins:") for line in preview_model(session, p)[0].agenda)
+
+
 def test_version_changes_at_midnight(session, monkeypatch):
     before = version(session, params())
     monkeypatch.setattr(clock, "now", lambda: datetime(2026, 10, 17, 0, 1, tzinfo=clock.tz()))

@@ -195,3 +195,51 @@ def test_warning_backup_stale(session, cal):
     settings_store.put(session, "backup_last_ok_at", "2026-10-18T02:30:00+00:00")
     session.commit()
     assert build_display(session, NOW, uptime=timedelta(0)).warning == "Backup not run since Sun 18 Oct"
+
+
+@pytest.fixture
+def bins(session):
+    from app.bins.service import store
+
+    store(session, {"council": "YorkCouncil", "postcode": "YO10 3DD", "house_number": "1", "uprn": "100050535540"}, [
+        {"type": "Garden waste", "date": "2026-10-22"},
+        {"type": "RECYCLING", "date": "2026-10-22"},
+    ])
+    session.commit()
+
+
+def test_bin_days_are_grouped_all_day_events_and_mark_month_grid(session, bins):
+    model = build_display(session, NOW)
+    assert texts(model) == ["Today · nothing planned", "Tomorrow", "Bins: Garden waste, RECYCLING"]
+    assert model.agenda[-1].time_text == "All day"
+    cells = {cell.day: cell for week in model.month_grid for cell in week if cell.in_month}
+    assert cells[22].has_events
+    assert not cells[23].has_events
+
+
+@pytest.mark.parametrize("age, expected", [
+    (timedelta(days=2), None),
+    (timedelta(days=3), "Bins not updating since Sun 18 Oct"),
+])
+def test_bin_failure_warning_after_two_days(session, cal, bins, age, expected):
+    import json
+
+    settings_store.put(session, "bins.status", json.dumps({
+        "last_error_since": (NOW - age).isoformat(),
+        "last_error": "Council unavailable",
+        "last_ok_at": None,
+    }))
+    session.commit()
+    assert build_display(session, NOW, uptime=timedelta(0)).warning == expected
+
+
+def test_bin_dates_and_failures_are_ignored_without_configuration(session, cal, bins):
+    import json
+
+    settings_store.delete(session, "bins.config")
+    settings_store.put(session, "bins.status", json.dumps({"last_error_since": (NOW - timedelta(days=3)).isoformat()}))
+    session.commit()
+    model = build_display(session, NOW, uptime=timedelta(0))
+    assert texts(model) == ["Today · nothing planned"]
+    assert not any(cell.has_events for week in model.month_grid for cell in week)
+    assert model.warning is None
