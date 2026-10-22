@@ -1,177 +1,403 @@
 # home-calendar-screen
 
-A self-hosted household kitchen app:
+A self-hosted kitchen planner with recipes, a weekly dinner menu, shopping lists and a calendar screen. Use it in a browser, or send its black-and-white image to an e-ink display.
 
-- **Recipe library**: save dinners by hand or import them from links, screenshots and paper scans (Claude extracts the recipe).
-- **Weekly dinner menu** (Saturday–Friday) with a "roll the dice" suggester and an automatically rebuilt shopping list.
-- **E-ink display**: monochrome calendar images at your display's resolution, showing the date, a month grid, upcoming Google Calendar events (secret ICS URLs), this week's dinners and, optionally, a weather forecast. The bundled hardware adapter supports a Raspberry Pi with a Waveshare 7.5" V2 panel (800×480).
+- Save recipes by hand, or use Claude to import links, pasted text, screenshots and handwritten pages.
+- Plan dinners from Saturday to Friday. Pick a recipe, filter suggestions by tags, roll the dice, or mark a takeaway.
+- Generate a shopping list from the week's dinners, grouped by aisle, with pantry staples separated out.
+- Show calendar events, dinners and optional weather and UK bin collections on a monochrome screen.
+- Preview the screen without hardware. Request different image sizes; other panels need their own hardware adapter.
 
-The server (`server/`, FastAPI + SQLite) renders a hardware-independent 1-bit PNG. The display client (`display-client/`) pulls `/display/frame.png` every 5 minutes and redraws for changed content, connection status or adapter-specific full-refresh maintenance, subject to the Settings-controlled night pause and refresh safeguards. Other panels require their own locally installed adapter and dependencies; this is not universal plug-and-play hardware support.
+**There is no login or access control. Anyone who can reach the app can view and change household data. Keep it on a private home network, VPN or tailnet. Do not expose port 8000 to the public internet.** HTTPS alone does not make it private. Protect the data, backups, calendar URLs and API keys too.
 
-**There is no login.** Run it on a private network (home LAN, VPN or tailnet) and never expose it to the internet.
+The server uses Python, FastAPI and SQLite. The optional display client polls it every five minutes. Only the Raspberry Pi + Waveshare 7.5-inch V2 adapter is bundled; changing image dimensions does not add a driver for another panel.
 
-## Requirements
+**Jump to:** [Screenshots](#a-look-around) · [Docker setup](#start-with-docker) · [First use](#first-use) · [Configuration](#server-configuration) · [Display client](#display-client) · [Backups and updates](#backups-updates-and-recovery) · [Development](#local-development) · [Troubleshooting](#common-problems)
 
-- A machine to run the server in Docker (any Linux host; the published image is `arm64`, see [Release](#release) for other architectures).
-- An [Anthropic API key](https://console.anthropic.com/) for recipe import and shopping lists.
-- Optional: a [WeatherAPI.com](https://www.weatherapi.com/) key for the forecast strip.
-- Optional: a Raspberry Pi (3B or newer) with a Waveshare 7.5" V2 e-paper HAT for the bundled hardware adapter, or a POSIX Python host and a custom panel adapter. Without hardware, `/preview` shows the HTML composition and output PNG.
+## A look around
 
-## Quick start (Docker Compose)
+These are real app screens populated with sample household data, not personal calendars. The display examples use a fixed preview date and sample weather.
 
-1. Copy `deploy/compose.yaml` to a directory of your choice and create `.env` next to it:
+### Weekly menu
 
-   ```sh
-   TZ=Europe/London
-   ANTHROPIC_API_KEY=sk-...
-   # WEATHER_API_KEY=...        # optional, enables Settings → Weather
-   # LLM_MODEL=claude-sonnet-5-5  # any Claude model with structured outputs
-   ```
+Choose dinners for the week, with tag filters and dice suggestions available on each day.
 
-2. Create the data and backup directories. The container runs as uid 1000 / gid 100:
+![Weekly dinner menu with sample meals](docs/screenshots/menu.png)
 
-   ```sh
-   mkdir -p data backups && sudo chown 1000:100 data backups
-   ```
+### Recipe library
 
-3. Start it:
+Browse saved recipes and filter by category, tag or search text. Recipes can be entered manually or filled from an import.
 
-   ```sh
-   docker compose up -d
-   ```
+![Recipe library with sample recipes](docs/screenshots/recipes.png)
 
-4. Open `http://<server>:8000`. Check health with `curl http://<server>:8000/healthz` (returns `{"ok":true}`).
+### Shopping list
 
-Migrations run automatically on start. To upgrade, change the `image:` tag and run `docker compose up -d`.
+Generated ingredients are grouped by aisle. Rebuild after changes, compare with the previous list, or copy the text to another app.
 
-To serve it over HTTPS under a hostname of your choice, put any reverse proxy in front of port 8000 and remove the `ports:` mapping. Keep it private (see above).
+![Shopping list grouped by aisle](docs/screenshots/shopping.png)
 
-### Backups
+### Calendar display
 
-Backups run nightly at 03:30 into `/backups/<date>/` inside the container (mounted from `./backups`), keeping 14 days.
+The default 800×480 composition combines the month, upcoming events, dinners and optional weather.
 
-## Local development
+![Monochrome calendar display with sample events and weather](docs/screenshots/display.png)
 
-```sh
-cd server
-python3.12 -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
-.venv/bin/playwright install chromium        # for the display frame render
-.venv/bin/pytest -q
+### Screen preview
 
-mkdir -p /tmp/hcs-data
-export DATA_DIR=/tmp/hcs-data BACKUP_DIR=/tmp/hcs-backups ANTHROPIC_API_KEY=sk-...
-.venv/bin/alembic upgrade head
-.venv/bin/uvicorn app.main:app --reload
-```
+The preview shows HTML and the final monochrome PNG. This portrait example fits the same composition with white space above and below.
 
-Open http://127.0.0.1:8000. Other env vars: `TZ` (default `Europe/London`), `LLM_MODEL` (default `claude-sonnet-5-5`; an override must support [structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)), `WEATHER_API_KEY`.
+![Portrait screen preview showing fitted HTML and PNG](docs/screenshots/preview.png)
 
-Screen preview: `/preview` (linked from Settings) shows the fitted HTML and its 1-bit PNG side by side and refreshes when the data, `display.html`/`app.css` or the Python code (under `--reload`) changes. Its pretend time, scenario, forced-warning, offline-stamp, weather-state and output-dimension controls live in the URL and never affect another display. The optional offline stamp appears in the PNG pane only. Select 1× or 2× zoom for pixel sizing. Physical-size zoom needs the screen's physical width in millimetres; it defaults to 163.2 mm only for 800×480, and is disabled at other resolutions until you enter a positive width. Calibration is saved in this browser per pixel resolution, not sent to the server.
+## Start with Docker
 
-Display client tests (need Pillow): `server/.venv/bin/python -m pytest -q display-client`. Dry-run the client against a local server (disable the night pause in **Settings → Display** if running during the pause; use a separate state directory so the dry-run does not affect the physical client's refresh history):
+You need Docker with Compose and a host that can run the selected image. The release workflow currently publishes **Linux ARM64** images. For another architecture, build from source as shown below.
+
+**Version note:** [`deploy/compose.yaml`](deploy/compose.yaml) currently pins `v0.3.0`. That release may predate the portable image sizes and adapter interface described in this README. Do not assume that pulling the pinned image gives you every feature in the current source. Select a release that includes the features you need, or build this checkout locally.
+
+From a clone of this repository:
 
 ```sh
-python3 display-client/frame.py --url http://localhost:8000/display/frame.png \
-  --state-dir /tmp/fstate --dry-run --out /tmp/panel.png
+mkdir -p ~/home-calendar
+cp deploy/compose.yaml ~/home-calendar/compose.yaml
+cd ~/home-calendar
 ```
 
-For a portrait dry-run, add `--width 600 --height 800` and use another state directory. Dry-run writes a PNG without loading a hardware adapter or its libraries. It still respects the server's night pause and persistent redraw history.
+Create a file named `.env` beside `compose.yaml`:
 
-## Display output and geometry
+```dotenv
+TZ=Europe/London
+ANTHROPIC_API_KEY=
+# Optional: enable AI imports, tag suggestions and shopping-list generation.
+# ANTHROPIC_API_KEY=your-key
+# Optional: allow weather setup in Settings.
+# WEATHER_API_KEY=your-weatherapi-key
+```
 
-`/display/frame.png?width=600&height=800` returns a 600×800 monochrome PNG. `/display`, `/preview`, `/preview/version` and `/preview/frame.png` accept the same dimensions. Each axis defaults independently to 800×480: `?width=400` means 400×480, not 400×240. Values must be integers from 1 to 8192, with at most 16,777,216 pixels in total. Empty, malformed, repeated or out-of-range dimension parameters return HTTP 422.
+An [Anthropic API key](https://console.anthropic.com/) is **optional**. Manual recipes, manual tags, menu choices, dice suggestions, calendar feeds and display rendering do not require it. Recipe extraction, automatic tag suggestions and shopping-list generation do. With a key configured, saving a manually entered recipe can also trigger background tag suggestions. AI requests send relevant recipe content, images or shopping ingredients to Anthropic and can incur charges. Check generated recipes and quantities yourself.
 
-The existing composition remains an 800×480 design canvas. Output uniformly fits it without cropping or stretching, with white letterboxing: 400×240 scales to half size; 600×800 contains 600×360 content starting at y=220; 1200×825 contains 1200×720 content starting at y=52. Integer rounding can differ by a subpixel between axes. Scaling uses nearest-neighbour sampling to keep the output 1-bit. Very small sizes are valid images, not a promise of readable text. Portrait means height exceeds width; physical mounting rotation belongs to the adapter.
+Create writable storage and start the server. The container runs as user 1000, group 100:
 
-Dimensions are request-local, not a database or night-policy setting, so multiple screens can share a server. The server renders one canonical composition and caches dimension-specific derived PNGs; ETags and conditional requests identify the selected representation, not another screen's geometry. Offline stamps use the same fitted design coordinates and stay clear of the letterbox bars.
+```sh
+mkdir -p data backups
+sudo chown 1000:100 data backups
+docker compose up -d
+```
 
-## Weather (optional)
+Open `http://<server>:8000`. The home page opens the weekly menu. Check basic server health with:
 
-Set `WEATHER_API_KEY` in the server environment and recreate the container. Weather is disabled by default and needs no database migration. The key stays on the server and is never shown in the browser.
+```sh
+curl http://localhost:8000/healthz
+# {"ok":true}
+```
 
-In **Settings → Weather**, search for a location, select the exact result (region and country are shown), then enable weather. Selecting a location alone does not enable it. Choose three daily forecasts or four sampled hours at fixed 2- or 3-hour boundaries, in Celsius or Fahrenheit. The forecast uses the location's timezone; the calendar and dinners keep the server's `TZ`. Subdaily rain/snow percentages describe the sampled hour, not the whole interval.
+Database migrations run automatically when the container starts. `/healthz` checks that the web server responds; it does not prove that imports, calendar providers or physical hardware work.
 
-The server fetches within a few seconds of enabling and every 30 minutes after, including after failures. Changing mode or units, opening the display and using the preview all read the cache without another provider call. Last-good data is marked stale after one hour and hidden after six hours or beyond forecast coverage.
+To run the current checkout instead of a published image, build from the repository root:
 
-The offline banner (below) takes precedence over the lowest-left forecast cells; the provider credit sits above it. The display client needs no weather key.
+```sh
+docker build -t home-calendar:local server
+```
 
-## Bin collections (optional)
+Then change `image:` in your copied Compose file to `home-calendar:local` and run `docker compose up -d`. The local image uses the host's build architecture by default. Keep the data and backup mounts.
 
-In **Settings → Bins**, enter your postcode and house number or name. The app checks the postcode with [postcodes.io](https://postcodes.io), detects the council and asks for a UPRN only if that council needs one, with a link to find it. If detection fails, choose the council from the list. Councils whose scrapers require a web browser are not supported on the kitchen Pi.
-Changing the address re-detects the council and asks for a new UPRN where needed. A failed lookup keeps the chosen council for a retry.
+## First use
 
-Dates come from [UKBinCollectionData](https://github.com/robbrad/UKBinCollectionData), with no API key or database migration. Every returned bin type appears as an all-day `Bins: …` agenda event and a dot in the month grid; bins collected on the same day share one line. Only council-provided dates are shown—no collection patterns are projected.
+### 1. Connect calendars in Settings
 
-Collections refresh twice a day, or with **Update now**. Failed updates keep the last-good dates and retry hourly; after two days of failures the screen shows a warning. **Remove** clears the address, dates and status. Enter the household's address only on the deployed app, never in repository files.
+Open **Settings → Calendars**. Give each feed a name and paste its ICS/iCal URL. For Google Calendar, use **Settings → your calendar → Integrate calendar → Secret address in iCal format**. The app reads feeds; it does not edit your calendar.
+
+Treat a secret ICS URL like a password: it grants access to calendar data. Do not paste real feeds into issues, screenshots or repository files. Feeds are saved in the database, so protect backups as well.
+
+The app syncs on startup and every 15 minutes. **Sync now** requests an immediate refresh, but Google can take hours to update its published feed. Failed refreshes keep the last successful events and show status in Settings.
+
+### 2. Add recipes
+
+Open **Recipes → Add a recipe** (`/dishes/new`). Enter a title, ingredients, steps and any useful tags yourself. No API key is needed for that path; leave the import source fields empty for a fully manual recipe.
+
+With an Anthropic key, add a recipe link, paste source text or upload screenshots to fill missing details in the background. Handwritten pages have a separate batch import and review flow. Check the result and edit mistakes before cooking. Some social sites block automated downloads; paste the caption or upload screenshots instead.
+
+Search the library and filter by recipe category or tag. Archive recipes you no longer want in normal browsing and suggestions.
+
+### 3. Plan the week
+
+Open **Menu** (`/menu`). Weeks run **Saturday–Friday**. Pick a saved recipe for a day, choose takeaway, or clear the selection. The dice suggests dinners from your library, not AI-generated meals. Tags narrow the suggestions; the dice avoids recipes scheduled within 21 days of that date. You can still pick a recipe manually when it warns about a repeat.
+
+### 4. Build the shopping list
+
+Open **Shopping** for the intended week; its default is next week. Add dinners first, then choose **Build list**. This step needs the Anthropic key. The list combines ingredients, groups them into aisles and puts items from **Settings → Pantry staples** under **Check you have**.
+
+Saved lists for this week and next rebuild automatically after menu/recipe changes settle for about five minutes. Pantry changes can mark a list out of date; use **Rebuild**. The page shows changes since the previous list.
+
+There is **no in-app shopping-item editor or tick-off checklist**. To correct source quantities, edit the recipe, menu or pantry and rebuild. For extra items or manual changes to the finished list, use **Copy** and edit it in your notes/shopping app. Copying needs browser clipboard permission and normally HTTPS or localhost.
+
+### 5. Set up the screen and optional extras
+
+- **Screen preview** in Settings (`/preview`) works without a panel. Compare the HTML composition with the final 1-bit PNG, try sample scenarios, and change output dimensions. Preview controls do not change another screen's settings.
+- **Settings → Display** controls the night pause, initially **23:00–06:00** in the server's `TZ`. The last image remains visible; the panel is not blanked and its host stays on. Maintenance refreshes can override the pause for hardware safety.
+- **Weather:** set a [WeatherAPI.com](https://www.weatherapi.com/) key in the server environment, recreate the container, then search for and select a location in Settings. Enable weather separately. Choose daily or sampled-hour forecasts and Celsius/Fahrenheit. The forecast uses the location's timezone; calendar/menu dates use `TZ`.
+- **Bins:** enter a UK postcode and house number/name in Settings. The app uses [postcodes.io](https://postcodes.io/) to find the council and asks for a UPRN if required. If needed, choose a supported council yourself. Dates come from [UKBinCollectionData](https://github.com/robbrad/UKBinCollectionData); not every council is supported, and browser-dependent scrapers are excluded. No API key is needed. Returned collections appear as all-day agenda events and month dots; dates are not extrapolated.
+
+Weather refreshes every 30 minutes; last-good forecasts become stale after one hour and disappear after six hours or outside forecast coverage. Bins refresh twice daily, retry hourly after failures and show a warning after two days of failures. **Update now** refreshes bins manually; **Remove** clears the saved address and dates. Keep real household addresses out of repository files.
+
+## Server configuration
+
+Set these in the server process environment. With the supplied Compose file, put the API keys, model and timezone in `.env`, then run `docker compose up -d` to recreate the container.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TZ` | `Europe/London` | Calendar/menu dates, backup time and display night-pause timezone. |
+| `ANTHROPIC_API_KEY` | Unset | Optional AI recipe import, tag suggestions and shopping lists. |
+| `LLM_MODEL` | `claude-sonnet-5-5` | Claude model used for AI features; overrides must support structured outputs. |
+| `WEATHER_API_KEY` | Unset | Optional WeatherAPI.com access; weather still needs enabling in Settings. |
+| `DATA_DIR` | `/data` | SQLite `app.db` and uploaded/downloaded `media/`. |
+| `BACKUP_DIR` | `/backups` | Existing directory for database snapshots and the media mirror. |
+
+The Compose mounts map `./data` to `/data` and `./backups` to `/backups`. Compose also loads `.env` into the container. Leave `DATA_DIR` and `BACKUP_DIR` unset to keep these storage paths. If you override either, update the matching container mount destination too.
+
+Calendars, pantry, weather location, bins and night-pause settings live in SQLite, not environment variables.
+
+A private reverse proxy can provide HTTPS. Keep access restricted to trusted users and only forward traffic from a trusted proxy: the container enables proxy headers. For a private certificate authority, install its root certificate on browsers/phones and configure the display client's `CA_FILE`; do not disable certificate verification.
 
 ## Display client
 
-### Raspberry Pi + Waveshare 7.5" V2 (default)
+You do not need a physical screen to use the planner or preview. The server creates a monochrome PNG; a client and adapter handle getting it onto hardware.
 
-1. Flash Raspberry Pi OS Lite 64-bit, enable SSH, attach the HAT.
-2. Copy all of `display-client/`, including `adapters/`, to the Pi with `rsync -rL` (`stamp.py` is a symlink to `server/app/display/stamp.py` and must arrive as a real file; do not copy only `frame.py`), then run it from that directory:
+### Raspberry Pi + Waveshare 7.5-inch V2
 
-   ```sh
-   sudo ./install.sh                         # keeps the Pi's timezone
-   sudo TIMEZONE=Europe/Paris ./install.sh   # or set it explicitly
-   ```
+Use Raspberry Pi OS Lite 64-bit and the matching HAT/panel. Wire the hardware according to its manufacturer's instructions.
 
-   It is safe to re-run and preserves an existing `frame.env`. It installs packages, enables SPI, fetches a pinned Waveshare driver into `/opt/home-calendar-frame/`, copies the client/shared stamp/adapters together, creates `/etc/home-calendar-frame/frame.env` if absent, and enables **and starts** a 5-minute systemd timer.
-3. Edit `/etc/home-calendar-frame/frame.env`: set `FRAME_URL` to your server's `/display/frame.png`. If you serve HTTPS with a private certificate authority, copy its root certificate to the Pi and set `CA_FILE` to its path; leave `CA_FILE` empty otherwise.
-4. Reboot (picks up SPI and group changes), then `sudo systemctl start home-calendar-frame.service` and `journalctl -u home-calendar-frame -n 20`.
+Copy the **complete** client directory to the Pi, dereferencing symlinks. From a full repository checkout on your computer:
 
-### Other adapters and generic Linux installation
+```sh
+rsync -rL display-client/ pi@your-pi:~/home-calendar-frame/
+```
 
-On a Linux system with systemd, copy the same complete client directory (dereferencing the stamp symlink), then run:
+`display-client/stamp.py` links to a shared server file in the repository. `-L` makes it a real file on the Pi; copying only `frame.py` is not enough.
+
+On the Pi, as a normal user with sudo:
+
+```sh
+cd ~/home-calendar-frame
+sudo ./install.sh
+# Optional timezone override instead:
+# sudo TIMEZONE=Europe/Paris ./install.sh
+```
+
+The installer enables SPI, installs Pillow/fonts/GPIO packages, downloads pinned Waveshare files, copies the client and adapters to `/opt/home-calendar-frame`, and enables **and starts** a five-minute systemd timer. It preserves an existing `/etc/home-calendar-frame/frame.env`.
+
+Edit that file and set `FRAME_URL=http://your-server:8000/display/frame.png`. For HTTPS with a private CA, set `CA_FILE` to the CA root file's path; otherwise leave it empty. Reboot for SPI/group changes, then check a run:
+
+```sh
+sudo systemctl start home-calendar-frame.service
+journalctl -u home-calendar-frame -n 20
+```
+
+### Generic Linux installation
+
+For another adapter on an apt-based Linux host with systemd, copy the same complete directory and run:
 
 ```sh
 sudo ./install.sh --generic
 ```
 
-Generic mode installs only `python3-pil` and `fonts-dejavu-core` plus the client, shared stamp, adapters and service/timer. It does **not** configure SPI, add GPIO/SPI groups, install GPIO libraries or download vendor code. It preserves an existing `frame.env` and enables the timer without starting it. Before starting, install your adapter and its hardware dependencies, configure its physical pins/transport, and set `FRAME_DRIVER` and `FRAME_URL` in `/etc/home-calendar-frame/frame.env`. Then run `sudo systemctl start home-calendar-frame.timer`. Other installer arguments are rejected. The default installation still performs the Pi/Waveshare setup.
+This installs `python3-pil`, `fonts-dejavu-core`, the client/adapters and service/timer. It skips Raspberry Pi SPI/GPIO configuration, GPIO libraries/groups and vendor downloads. It enables the timer **without starting it**.
 
-The driver selector is `--driver module:factory` or `FRAME_DRIVER`; the default is `adapters.waveshare7in5_v2:create`. The factory is imported from trusted, locally installed Python code and called with no arguments. It must return an object with a `PanelSpec` from `adapters` as `.spec` and a callable `.show(image)`. Spec loading must not initialize hardware. `show` receives a mode-`1` Pillow image at exactly `spec.size`, clean or offline-stamped; the adapter owns transport, pixel packing, mounting rotation, hardware dependencies and the device's sleep/cleanup lifecycle. Only the bundled Waveshare adapter is supplied; other manufacturers need real drivers, not merely a changed resolution.
-
-`PanelSpec(size, min_interval, maintenance_after, max_interval)` is frozen. Size is a tuple of two integers (not booleans), with the same axis/pixel bounds as the server. Intervals are `datetime.timedelta` values: minimum spacing must be nonnegative. Set both maintenance values to `None` to disable periodic and pre-pause maintenance, or require `min_interval <= maintenance_after < max_interval`, leaving at least five minutes between maintenance and maximum intervals. The client's five-minute poll cadence is fixed; hardware needing more frequent maintenance is unsupported. Invalid driver/spec configuration fails before networking or drawing.
-
-Real mode uses the adapter's dimensions. Optional `--width`/`FRAME_WIDTH` and `--height`/`FRAME_HEIGHT` must match its spec; these options select arbitrary sizes only in dry-run, where each axis defaults independently to 800×480 and bundled timing safeguards apply without loading a driver. The client adds the resolved dimensions to `FRAME_URL`, preserving unrelated query parameters. Existing matching dimensions are accepted once; mismatches and repeated width/height parameters are errors.
-
-Direct `python3 display-client/frame.py …` use does not require systemd, but requires Pillow and a POSIX host with `fcntl.flock`, plus the selected adapter's dependencies in real mode. The installer targets Linux; this is not a Windows client. Devices such as microcontrollers can consume the PNG endpoint with their own client; no firmware or additional native client is supplied.
-
-### Refresh policy and state
-
-In **Settings → Display**, enable, disable or change the night pause (initially **23:00–06:00**). Times use the app's `TZ`, including daylight-saving changes, not the display host's timezone. The last image stays visible during the pause; the screen is not blanked and the host stays on. The client still checks the server every five minutes, so settings changes arrive even while redraws are paused.
-
-With the bundled Waveshare adapter, all physical redraws are at least **180 seconds apart**, including changed images, offline warnings and recovery. A single normal full redraw is forced after **23 hours 45 minutes**, leaving margin before the manufacturer's 24-hour recommendation even when content is unchanged. It uses a compatible cached image if the server is offline. Maintenance takes priority over the night pause and may happen just before it starts; no extra `Clear()` or blank-screen cycle is added. The driver sleeps after drawing, including after a draw failure. Other adapters use their own spec's minimum spacing and optional maintenance values.
-
-After an hour without the server, the next permitted redraw adds an "Offline since HH:MM" warning. Offline maintenance keeps that warning and its original time; successful recovery removes it only when the clean frame is actually redrawn. The last valid schedule, refresh attempts/completions and clean image persist in `/var/lib/home-calendar-frame` by default. Concurrent invocations are serialized. Use a **separate `--state-dir` for each physical screen**, including when switching adapters to drive a different screen: refresh history belongs to the physical device. Unreadable or wrong-size cached images cannot be redrawn or stamped; their ETag is omitted to fetch a replacement unconditionally, while attempt/completion history and spacing guards remain intact. A bad fetched image retains the last good cache and exits with code 2. These timing safeguards require a running host, a valid clock and working hardware; they cannot guarantee refresh during power loss or hardware failure.
-
-**Updating an existing display:** update the server, copy the updated `display-client/` files **including `adapters/` and the shared stamp**, and re-run the appropriate installer mode. Existing Waveshare deployments need no driver/dimension environment changes. Settings remains the only schedule authority: remove obsolete `QUIET_HOURS` from `/etc/home-calendar-frame/frame.env` (the installer preserves this file), and remove any custom `--quiet-hours` argument. The environment variable is no longer read and the CLI option is no longer accepted. Previous cached-image metadata is migrated automatically; a cache without refresh history waits three minutes before its first safety redraw. A new client must receive a valid policy from the updated server before drawing ordinary updates; after that, the cached policy works offline.
-
-## Release
-
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: server and display-client tests, then an `arm64` image build pushed to `ghcr.io/<owner>/home-calendar-screen:vX.Y.Z`.
+Install your own trusted local adapter and its hardware dependencies, configure its pins/transport, then set `FRAME_DRIVER=your_module:create` and `FRAME_URL` in `/etc/home-calendar-frame/frame.env`. Start polling only after that setup:
 
 ```sh
-git tag v1.2.3 && git push origin v1.2.3
+sudo systemctl start home-calendar-frame.timer
 ```
 
-If you fork the project, change the image name and source label in the workflow and the `image:` in `deploy/compose.yaml`. After the first release, make the package public (GitHub → Packages → Package settings → Change visibility) so servers can pull it without logging in. For another architecture, change `platforms:` in the workflow or build locally:
+No other panels' adapters are supplied or claimed to work automatically. The installer accepts only no arguments or `--generic`.
+
+### Try the client without hardware
+
+Direct use needs Python, Pillow and a POSIX host with `fcntl.flock`; it does not need systemd. Windows is not supported by this client. With the development environment below installed, run from the repository root:
 
 ```sh
-docker build -t home-calendar server
-docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-... -v "$PWD/.data:/data" home-calendar
+server/.venv/bin/python display-client/frame.py \
+  --url http://127.0.0.1:8000/display/frame.png \
+  --width 600 --height 800 \
+  --state-dir /tmp/hcs-portrait-demo \
+  --dry-run --out /tmp/hcs-portrait.png
 ```
 
-## Trusting a private HTTPS certificate on phones
+Dry-run never loads a hardware driver. It still obeys night pause and redraw history: disable the pause in the isolated server's Settings if needed, and use a separate state directory from any physical screen. Running the command once fetches/checks once; the installed timer provides recurring polling. Default dry-run dimensions are 800×480.
 
-Only needed if you front the app with a private certificate authority. Send the CA's root certificate to the phone, then:
+<details>
+<summary>Image geometry, preview calibration and HTTP reference</summary>
 
-**iPhone / iPad**: open the file → "Profile Downloaded"; Settings → General → VPN & Device Management → install it; Settings → General → About → Certificate Trust Settings → enable full trust.
+### Output sizes
 
-**Android**: Settings → Security & privacy → More security settings → Encryption & credentials → Install a certificate → CA certificate (wording varies by vendor). Chrome trusts it straight away; Firefox needs "Use third party CA certificates" enabled in its secret settings.
+`/display/frame.png?width=600&height=800` returns a 600×800 mode-`1` PNG. `/display`, `/preview`, `/preview/version` and `/preview/frame.png` accept the same dimension parameters. Each axis defaults independently: `?width=400` means 400×480, not 400×240.
 
-## License
+Each dimension must be an integer from 1 to 8192; total pixels cannot exceed 16,777,216. Empty, malformed, repeated and out-of-range dimensions return HTTP 422. These limits prevent excessive image allocation, not unreadable text on very small screens.
 
-[MIT](LICENSE).
+The layout remains an 800×480 design canvas. It fits inside the requested image, centred on white, without cropping or deliberate stretching. Nearest-neighbour resizing keeps the output monochrome. Examples:
+
+| Output | Fitted content | White margins |
+| --- | --- | --- |
+| 400×240 | 400×240 | None |
+| 600×800 | 600×360 | 220 pixels above and below |
+| 1200×825 | 1200×720 | 52 pixels above, 53 below |
+
+Integer rounding can produce a subpixel difference between the HTML scale axes. Portrait is simply height greater than width; mounting rotation is the adapter's responsibility. Offline stamps use the same fitted coordinates and do not fill the letterbox bars.
+
+Sizes are request-local, so different screens can share a server. The server renders a canonical composition, caches fitted representations, and uses representation-specific ETags for conditional requests. `X-Display-Policy` carries the shared night-pause policy, including on 304 responses and render failures; a fresh client needs a valid policy before a normal draw.
+
+### Preview controls
+
+`/preview` offers pretend time, scenarios, warnings, offline stamp, weather states and dimensions without changing the live display. The optional offline stamp appears only in the PNG pane. The preview refreshes as data changes; local development with `--reload` also picks up code changes.
+
+1×/2× zoom uses the selected pixel dimensions. Physical-size zoom needs the panel's physical width in millimetres: 163.2 mm is the default only at 800×480. Other sizes require a positive width before that mode is enabled. Panel width is saved in this browser per resolution; the bank-card calibration is shared across resolutions in that browser. Neither affects server settings or image cache identity.
+
+</details>
+
+<details>
+<summary>Adapter contract, client options and refresh safety</summary>
+
+### Options
+
+| CLI option | Environment/default | Meaning |
+| --- | --- | --- |
+| `--url` | `FRAME_URL`, required | Server frame PNG URL. |
+| `--driver` | `FRAME_DRIVER=adapters.waveshare7in5_v2:create` | Trusted local Python `module:factory`; not loaded in dry-run. |
+| `--width`, `--height` | `FRAME_WIDTH`, `FRAME_HEIGHT` | Real mode: must match adapter size. Dry-run: independently default to 800 and 480. |
+| `--ca-file` | `CA_FILE`, unset | Root CA bundle for HTTPS. |
+| `--state-dir` | `/var/lib/home-calendar-frame` | Persistent state for one physical screen. |
+| `--dry-run` | Off | Save an image instead of driving hardware. |
+| `--out` | Required with `--dry-run` | Output PNG path. |
+
+The client adds resolved dimensions to the URL and preserves other parameters. Matching existing dimensions are accepted and emitted once. Mismatching or repeated width/height parameters are errors.
+
+### Writing an adapter
+
+The factory takes no arguments and returns an object with `.spec` (a `PanelSpec` from `display-client/adapters`) and callable `.show(image)`. Adapter code is trusted, locally installed Python, never a remote download chosen by the server. Spec loading must not initialize GPIO or import hardware dependencies.
+
+`show` receives a clean or offline-stamped mode-`1` Pillow image exactly matching `spec.size`. The adapter owns transport, pixel packing, mounting rotation, hardware dependencies and sleep/cleanup. The bundled implementation imports Waveshare lazily and sleeps in `finally`, including after draw failures.
+
+`PanelSpec(size, min_interval, maintenance_after, max_interval)` is frozen. Size is a tuple of two integers (not booleans), with the server's dimension/pixel bounds. Timing values are `datetime.timedelta`; minimum spacing is nonnegative. Both maintenance values may be `None` to disable periodic/pre-pause maintenance. Otherwise require `min_interval <= maintenance_after < max_interval`, with at least five minutes between maintenance and maximum intervals. Invalid drivers/specs fail before networking or drawing. The fixed five-minute poll cadence cannot serve panels requiring more frequent maintenance.
+
+### State and safety
+
+The bundled Waveshare adapter spaces **all** redraws at least 180 seconds apart, including offline/recovery redraws. It forces a normal full redraw after 23 hours 45 minutes, leaving margin before 24 hours. Maintenance can use a compatible cached image when offline, override night pause, or happen just before a pause would exceed that maximum. It does not add an extra blank/`Clear()` cycle. Other adapters use their own timing spec; dry-run uses the bundled timings.
+
+After an hour of connection failures, the next permitted redraw adds **Offline since HH:MM**. Maintenance keeps the original warning time; recovery removes the warning only when a clean frame is actually drawn. Polling continues during night pause so changed settings can arrive.
+
+The state directory stores the clean last-good image, ETag, policy, failure state and attempt/completion timestamps. A lock serializes concurrent runs. Attempts are persisted before hardware access and completions after successful drawing. **Use a different state directory for each physical screen**, including when changing adapters to drive another device. Do not delete history to force a redraw or bypass spacing guards.
+
+Unreadable or wrong-size cached images are unavailable for stamping/maintenance. The client fetches a replacement without their ETag but preserves refresh history. Wrong-size/unreadable fetched images keep last-good state and return exit code 2. A fresh client without a valid server policy does not perform a normal draw. Corrupt persisted state stops the run rather than attempting an untracked refresh.
+
+When upgrading, copy `frame.py`, the shared stamp and `adapters/` together and rerun the appropriate installer. Existing Waveshare users need no driver/dimension changes. Remove old `QUIET_HOURS` settings or `--quiet-hours` arguments: Settings is now the schedule authority. Old cache metadata migrates automatically; a cache without refresh history waits a full three-minute guard before its first safety redraw.
+
+The client is a POSIX Python program, not microcontroller firmware. A microcontroller/network display can consume the PNG endpoint through its own client, but no such firmware is provided here.
+
+</details>
+
+## Backups, updates and recovery
+
+**Settings → Backup → Back up now** runs a backup and shows the latest status. Scheduled backups run at **03:30 in `TZ`** while the server is running. `BACKUP_DIR` must already exist and be writable; the app reports an error rather than creating a missing backup root.
+
+With the supplied Compose mounts:
+
+```text
+backups/
+  YYYY-MM-DD/app.db   # dated SQLite snapshot
+  media/             # one shared copy of media, not a per-date snapshot
+```
+
+Database snapshots use SQLite's backup API. Dated directories at least 14 days old are removed. Media files are copied when new/changed; deleted source files are not removed from the mirror. This is not a versioned media archive, and it does not back up `.env`, Compose configuration or display-client state. Keep separate protected copies of those and copy backups off the host.
+
+Before updating, use **Back up now**, check it succeeded, and preserve the old configuration/image version. Change the Compose image tag to the chosen release, then:
+
+```sh
+docker compose pull
+docker compose up -d
+docker compose logs --tail=100 home-calendar
+```
+
+For a locally built image, rebuild it instead of pulling. Migrations run on container startup. Do not assume an older image can read a database migrated by a newer release.
+
+There is no one-click restore. A manual recovery procedure is:
+
+1. Stop the server (`docker compose stop`) so it cannot write during recovery.
+2. Preserve the entire current `data/` directory elsewhere before changing anything, including any SQLite `-wal`/`-shm` files.
+3. In a clean replacement data directory, put the selected dated `app.db` at `data/app.db` and copy `backups/media/` to `data/media/`. Do not mix old SQLite sidecar files with the restored database. The shared media mirror is not an exact snapshot of that date.
+4. Restore ownership (`1000:100` for the supplied image), point Compose at the replacement directory, and start a compatible server version. Check logs, Settings and a few recipes/calendar entries.
+
+This describes the stored backup layout and a recovery approach, not a guarantee that your backups are usable. Test recovery on a separate private instance before relying on it.
+
+## Local development
+
+Use **Python 3.12**. Native setup needs FFmpeg for video/audio import and DejaVu fonts for rendering. Install those with your OS package manager. On Linux, Playwright may also need system libraries (`playwright install --with-deps chromium`). The Dockerfile includes these system dependencies.
+
+From the repository root:
+
+```sh
+cd server
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/playwright install chromium
+
+mkdir -p /tmp/hcs-dev-data /tmp/hcs-dev-backups
+export DATA_DIR=/tmp/hcs-dev-data
+export BACKUP_DIR=/tmp/hcs-dev-backups
+export TZ=Europe/London
+# Optional: export ANTHROPIC_API_KEY=your-key
+# Optional: export WEATHER_API_KEY=your-key
+.venv/bin/alembic upgrade head
+.venv/bin/uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000`. Keep port **8000**: the server's internal Chromium render URL is fixed to `http://127.0.0.1:8000`. Use one server worker, as in the container entrypoint. Keep development storage separate from real household data.
+
+Run the test suites when changing code:
+
+```sh
+# From server/
+.venv/bin/python -m pytest -q
+
+# From the repository root
+server/.venv/bin/python -m pytest -q display-client
+```
+
+### Repository map for contributors and coding agents
+
+| Path | Start here for |
+| --- | --- |
+| `server/app/main.py` | App setup, routes and background loops. |
+| `server/app/config.py`, `db.py`, `models.py` | Environment settings, SQLite sessions and database models. |
+| `server/app/dishes/`, `tags/`, `ingest/` | Recipe editing/search, tags and queued AI import/review. |
+| `server/app/menu/`, `shopping/` | Weekly planning, dice logic and shopping generation/rebuilds. |
+| `server/app/calendars/`, `weather/`, `bins/` | External feeds/providers and last-good caches. |
+| `server/app/display/` | Screen data, geometry, PNG rendering, policy and preview. |
+| `server/app/templates/`, `static/` | Jinja templates, HTMX/browser UI and CSS. |
+| `server/app/backup.py` | Backup format, scheduling and retention. |
+| `server/migrations/`, `server/tests/` | Alembic schema changes and server regression tests. |
+| `display-client/` | Standalone fetch/state lifecycle, adapters, installer and client tests. |
+| `deploy/compose.yaml`, `server/Dockerfile` | Deployment defaults and image build. |
+| `DESIGN.md`, `PRODUCT.md` | Design/product context; confirm current behavior in code. |
+
+`display-client/stamp.py` is a symlink to `server/app/display/stamp.py`. Keep that shared code standalone (stdlib/Pillow only) and preserve the symlink in source. Display geometry is request-local; refresh state belongs to a physical screen. Do not use real calendar secrets, addresses or API keys in fixtures or screenshots.
+
+## Common problems
+
+| Problem | What to check |
+| --- | --- |
+| Container cannot write the database or backup | Check the `data/` and `backups/` mounts and ownership (`1000:100`). Look at `docker compose logs --tail=100 home-calendar`. |
+| AI import/list fails | Confirm a nonempty API key, account access/credits and a model supporting structured outputs. Restart/recreate after environment changes. Manual recipes/menu still work without AI. |
+| A recipe link cannot be read | The site may block downloads. Paste the recipe/caption or upload screenshots and retry. |
+| Calendar looks old | Check Settings status and **Sync now**. The provider's ICS feed may lag; failed syncs retain old events. |
+| Preview or frame render fails locally | Install Playwright Chromium and its system libraries, check DejaVu fonts, and run on port 8000. Check server logs. |
+| A custom image size returns 422 | Use one integer `width`/`height` each, 1–8192, within the total pixel limit. Ensure the running server release includes portable output. |
+| Dry-run produces no new file or panel does not redraw | Check night pause, refresh spacing/history, valid policy from the server and frame URL. Do not erase a physical screen's state to force it. |
+| Client rejects size or driver | Real-mode dimensions must match the adapter. Install the local module/dependencies and copy `adapters/` plus `stamp.py`, not just `frame.py`. |
+| HTTPS fails on the client | Supply the correct private root CA via `CA_FILE`; check hostname and certificate validity. Do not bypass TLS checks. |
+| Weather is missing | Add `WEATHER_API_KEY`, recreate the server, select a location **and enable weather**. Expired/out-of-range cached forecasts are hidden. |
+| Shopping Copy fails | Allow clipboard access and use HTTPS or localhost; alternatively select/copy the visible text. |
+
+## Release and license
+
+The release workflow runs server and display-client tests for pushed `vX.Y.Z` tags, then publishes `ghcr.io/mustyf10/home-calendar-screen:vX.Y.Z` for `linux/arm64`. See [the workflow](.github/workflows/release.yml) for the exact build. A fork must change the image name/source label and Compose reference, and make the package public if anonymous pulls are needed. Publishing is a maintainer action; the included Compose tag is not automatically updated to the latest release.
+
+[MIT license](LICENSE).
