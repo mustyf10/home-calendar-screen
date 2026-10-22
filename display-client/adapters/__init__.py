@@ -37,6 +37,13 @@ class PanelSpec:
                 raise ValueError("maintenance window must allow the five-minute poll interval")
 
 
+# Bundled panel policy, also used by hardware-free dry runs.
+DEFAULT_PANEL_SPEC = PanelSpec(
+    (800, 480), timedelta(seconds=180),
+    timedelta(hours=23, minutes=45), timedelta(hours=24),
+)
+
+
 class Adapter(Protocol):
     spec: PanelSpec
 

@@ -18,7 +18,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, time, timedelta, timezone
 from http.client import HTTPException
 from io import BytesIO
@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stamp import stamp  # noqa: E402
-from adapters import Adapter, PanelSpec, POLL_INTERVAL, validate_size  # noqa: E402
+from adapters import Adapter, DEFAULT_PANEL_SPEC, PanelSpec, POLL_INTERVAL, validate_size  # noqa: E402
 
 log = logging.getLogger("frame")
 OFFLINE_AFTER = timedelta(hours=1)
@@ -344,8 +344,7 @@ def main(argv=None) -> int:
         if args.dry_run:
             size = (args.width if args.width is not None else 800,
                     args.height if args.height is not None else 480)
-            panel = PanelSpec(size, timedelta(seconds=180),
-                              timedelta(hours=23, minutes=45), timedelta(hours=24))
+            panel = replace(DEFAULT_PANEL_SPEC, size=size)
             show = file_show(args.out)
         else:
             adapter = load_adapter(args.driver)

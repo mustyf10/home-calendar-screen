@@ -1,12 +1,9 @@
 """Waveshare 7.5-inch V2 normal full-refresh adapter."""
-from datetime import timedelta
-
-from . import PanelSpec
+from . import DEFAULT_PANEL_SPEC
 
 
 class Waveshare7in5V2:
-    spec = PanelSpec((800, 480), timedelta(seconds=180),
-                     timedelta(hours=23, minutes=45), timedelta(hours=24))
+    spec = DEFAULT_PANEL_SPEC
 
     def show(self, image) -> None:
         from waveshare_epd import epd7in5_V2
