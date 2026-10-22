@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Fetch the kitchen frame every five minutes; Settings controls the night pause.
 
-All physical refreshes use the driver's normal full refresh, at least 180 seconds
-apart. Cached frames provide safety maintenance even when the server is offline.
+Refresh spacing and optional cached-frame maintenance follow the selected adapter.
+Use a separate state directory for each physical screen.
 """
 from __future__ import annotations
 
 import argparse
 import fcntl
+import importlib
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import re
 import ssl
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, time, timedelta, timezone
@@ -26,14 +28,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stamp import stamp  # noqa: E402
+from adapters import Adapter, PanelSpec, POLL_INTERVAL, validate_size  # noqa: E402
 
 log = logging.getLogger("frame")
-SIZE = (800, 480)
 OFFLINE_AFTER = timedelta(hours=1)
-MIN_INTERVAL = timedelta(seconds=180)
-MAINTENANCE_AFTER = timedelta(hours=23, minutes=45)
-MAX_INTERVAL = timedelta(hours=24)
-POLL_INTERVAL = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -68,15 +66,16 @@ class Policy:
             return self.night_start <= local < self.night_end
         return local >= self.night_start or local < self.night_end
 
-    def preventive(self, now: datetime, completed: datetime | None) -> bool:
+    def preventive(self, now: datetime, completed: datetime | None,
+                   max_interval: timedelta | None) -> bool:
         soon = now + POLL_INTERVAL
-        if completed is None or self.paused(now) or not self.paused(soon):
+        if max_interval is None or completed is None or self.paused(now) or not self.paused(soon):
             return False
         # Walk in UTC: a DST fold or gap must not change elapsed-time safety.
         end = soon.replace(second=0, microsecond=0)
         while self.paused(end):
             end += timedelta(minutes=1)
-        return completed + MAX_INTERVAL <= end
+        return completed + max_interval <= end
 
 
 @dataclass
@@ -189,15 +188,31 @@ def fetch(url: str, etag: str | None, ca_file: str | None) -> FetchResult:
         return FetchFailed(str(getattr(e, "reason", e)), policy)
 
 
-def epd_show(img) -> None:
-    from waveshare_epd import epd7in5_V2
-
-    epd = epd7in5_V2.EPD()
+def load_adapter(driver: str) -> Adapter:
     try:
-        epd.init()
-        epd.display(epd.getbuffer(img))
-    finally:
-        epd.sleep()
+        module, factory = driver.split(":")
+        adapter = getattr(importlib.import_module(module), factory)()
+        if not isinstance(adapter.spec, PanelSpec):
+            raise ValueError("adapter.spec must be a PanelSpec")
+        adapter.spec.__post_init__()
+        if not callable(adapter.show):
+            raise ValueError("adapter.show must be callable")
+        return adapter
+    except Exception as exc:
+        raise ValueError(f"invalid driver {driver!r}: {exc}") from exc
+
+
+def sized_url(url: str, size: tuple[int, int]) -> str:
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    for name, expected in zip(("width", "height"), size):
+        values = [value for key, value in query if key == name]
+        if values and (len(values) != 1 or not re.fullmatch(r"[0-9]+", values[0]) or
+                       int(values[0]) != expected):
+            raise ValueError(f"URL {name} must occur once and match {expected}")
+    query = [(key, value) for key, value in query if key not in ("width", "height")]
+    query.extend(zip(("width", "height"), map(str, size)))
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query)))
 
 
 def file_show(out: str) -> Callable:
@@ -211,6 +226,7 @@ class Options:
     url: str
     ca_file: str | None
     state_dir: Path
+    panel: PanelSpec
 
 
 def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Callable) -> int:
@@ -222,7 +238,14 @@ def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Cal
     with (sd / "refresh.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         state = load_state(sd)
-        result = fetch(opts.url, None if state.stamped else state.etag, opts.ca_file)
+        cached = None
+        try:
+            with Image.open(sd / "last.png") as image:
+                if image.size == opts.panel.size:
+                    cached = image.convert("1")
+        except (OSError, ValueError, Image.DecompressionBombError):
+            pass
+        result = fetch(opts.url, None if state.stamped or cached is None else state.etag, opts.ca_file)
         now = utc(clock())  # Never measure the guard before a potentially slow HTTP call.
         if result.policy is not None:
             state.policy = result.policy
@@ -231,9 +254,8 @@ def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Cal
         if isinstance(result, Fetched):
             try:
                 clean = Image.open(BytesIO(result.body))
-                clean.load()
-                if clean.size != SIZE:
-                    raise ValueError(f"unexpected frame size {clean.size}, expected {SIZE}")
+                if clean.size != opts.panel.size:
+                    raise ValueError(f"unexpected frame size {clean.size}, expected {opts.panel.size}")
                 clean = clean.convert("1")
             except (OSError, ValueError, Image.DecompressionBombError) as e:
                 log.error("frame is not a readable image: %s", e)
@@ -247,22 +269,23 @@ def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Cal
             log.error("fetch failed: %s", result.reason)
         elif not state.stamped:
             state.failing_since = None
-        has_last = (sd / "last.png").exists()
+        has_last = cached is not None
         # Legacy caches have no physical history. Observe a full guard interval
         # before the first safety redraw rather than guessing when they were drawn.
         if has_last and state.last_attempt is None and state.last_completed is None:
             state.last_attempt = now
-        maintenance = has_last and (state.last_completed is None or
-                                    now - state.last_completed >= MAINTENANCE_AFTER)
+        maintenance = bool(has_last and opts.panel.maintenance_after is not None and
+                           (state.last_completed is None or
+                            now - state.last_completed >= opts.panel.maintenance_after))
         preventive = bool(has_last and state.policy and
-                          state.policy.preventive(now, state.last_completed))
+                          state.policy.preventive(now, state.last_completed, opts.panel.max_interval))
         wants_stamp = bool(failed and has_last and not state.stamped and
                            now - state.failing_since >= OFFLINE_AFTER)
         needs_draw = (isinstance(result, Fetched) or
                       (not failed and state.stamped and has_last) or
                       wants_stamp or maintenance or preventive)
         history = [t for t in (state.last_attempt, state.last_completed) if t is not None]
-        allowed = not history or now - max(history) >= MIN_INTERVAL
+        allowed = not history or now - max(history) >= opts.panel.min_interval
         scheduled = bool(state.policy and not state.policy.paused(now))
         # Only cached safety maintenance may draw before learning a valid policy.
         if not needs_draw or not allowed or not (scheduled or maintenance):
@@ -275,8 +298,7 @@ def run(opts: Options, clock: Callable[[], datetime], fetch: Callable, show: Cal
             if not has_last:
                 save_state(sd, state)
                 return exit_code
-            with Image.open(sd / "last.png") as cached:
-                clean = cached.convert("1")
+            clean = cached
         offline = failed and (state.stamped or wants_stamp)
         stamp_time = state.failing_since
         if stamp_time is not None and state.policy is not None:
@@ -308,14 +330,36 @@ def main(argv=None) -> int:
     p.add_argument("--state-dir", default="/var/lib/home-calendar-frame", type=Path)
     p.add_argument("--dry-run", action="store_true", help="save to --out instead of driving the panel")
     p.add_argument("--out", help="output PNG path for --dry-run")
+    p.add_argument("--driver", default=os.environ.get("FRAME_DRIVER", "adapters.waveshare7in5_v2:create"),
+                   help="trusted local module:factory adapter (env FRAME_DRIVER)")
+    p.add_argument("--width", default=os.environ.get("FRAME_WIDTH"), type=int)
+    p.add_argument("--height", default=os.environ.get("FRAME_HEIGHT"), type=int)
     args = p.parse_args(argv)
     if not args.url:
         p.error("--url or FRAME_URL is required")
     if args.dry_run and not args.out:
         p.error("--out is required with --dry-run")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    opts = Options(url=args.url, ca_file=args.ca_file, state_dir=args.state_dir)
-    show = file_show(args.out) if args.dry_run else epd_show
+    try:
+        if args.dry_run:
+            size = (args.width if args.width is not None else 800,
+                    args.height if args.height is not None else 480)
+            panel = PanelSpec(size, timedelta(seconds=180),
+                              timedelta(hours=23, minutes=45), timedelta(hours=24))
+            show = file_show(args.out)
+        else:
+            adapter = load_adapter(args.driver)
+            panel = adapter.spec
+            size = (args.width if args.width is not None else panel.size[0],
+                    args.height if args.height is not None else panel.size[1])
+            validate_size(size)
+            if size != panel.size:
+                raise ValueError("explicit dimensions must match the selected adapter")
+            show = adapter.show
+        url = sized_url(args.url, size)
+    except ValueError as exc:
+        p.error(str(exc))
+    opts = Options(url=url, ca_file=args.ca_file, state_dir=args.state_dir, panel=panel)
     return run(opts, lambda: datetime.now(timezone.utc), fetch, show)
 
 
