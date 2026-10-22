@@ -22,9 +22,9 @@ def client(session, monkeypatch):
 
 @pytest.fixture
 def rendered_frame(monkeypatch):
-    async def fake_frame():
+    async def fake_frame(size):
         return b"offline-test-png", '"unchanged-image"'
-    monkeypatch.setattr(routes, "get_frame", fake_frame)
+    monkeypatch.setattr(routes, "get_sized_frame", fake_frame)
 
 
 def display_section(response):
@@ -156,9 +156,9 @@ def test_frame_policy_changes_reach_200_and_304_without_changing_etag(client, re
 
 
 def test_render_failure_still_delivers_updated_policy(client, monkeypatch):
-    async def fail_frame():
+    async def fail_frame(size):
         raise RuntimeError("renderer offline")
-    monkeypatch.setattr(routes, "get_frame", fail_frame)
+    monkeypatch.setattr(routes, "get_sized_frame", fail_frame)
     response = client.get("/display/frame.png")
     assert response.status_code == 503
     assert json.loads(response.headers["X-Display-Policy"])["night_enabled"] is True

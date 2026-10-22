@@ -55,6 +55,22 @@ def test_query_is_canonical():
     assert params(p.query()) == p
 
 
+def test_geometry_query_defaults_and_round_trip():
+    assert params("width=800&height=480").query() == ""
+    p = params("width=600&height=800&scenario=busy")
+    assert (p.width, p.height) == (600, 800)
+    assert p.query() == "height=800&scenario=busy&width=600"
+    assert params(p.query()) == p
+    assert (params("width=400").width, params("width=400").height) == (400, 480)
+    assert (params("height=300").width, params("height=300").height) == (800, 300)
+
+
+def test_geometry_changes_version(session):
+    assert version(session, params("scenario=busy")) != version(
+        session, params("scenario=busy&width=600&height=800")
+    )
+
+
 # --- preview_model -------------------------------------------------------
 
 

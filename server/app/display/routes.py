@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.calendars.routes import _page
 from app.db import get_session
+from app.display.geometry import parse_size
 from app.display.preview import parse_params, preview_model
-from app.display.render import get_frame
+from app.display.render import get_sized_frame
 from app.display.settings import load_policy, save_policy
 from app.errors import UserFacingError, log_failure, user_message
 from app.web import render
@@ -20,15 +21,17 @@ router = APIRouter()
 @router.get("/display")
 def display(request: Request, session: Session = Depends(get_session)):
     """The panel's layout; preview query params (see preview.parse_params) only change what it shows."""
+    size = parse_size(request.query_params)
     model, _ = preview_model(session, parse_params(request.query_params))
-    return render(request, "display.html", {"m": model})
+    return render(request, "display.html", {"m": model, "size": size})
 
 
 @router.get("/display/frame.png")
 async def frame(request: Request, session: Session = Depends(get_session)):
+    size = parse_size(request.query_params)
     headers = {"X-Display-Policy": json.dumps(load_policy(session), separators=(",", ":"))}
     try:
-        png, etag = await get_frame()
+        png, etag = await get_sized_frame(size)
     except Exception:
         log.exception("Frame render failed")
         return PlainTextResponse("render failed", status_code=503, headers=headers)

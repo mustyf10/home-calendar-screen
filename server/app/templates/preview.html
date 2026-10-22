@@ -37,6 +37,12 @@
   <label>Offline since
     <input type="time" name="offline" value="{{ params.offline.strftime('%H:%M') if params.offline else '' }}">
   </label>
+  <label>Width (px)
+    <input type="number" name="width" value="{{ params.width }}" min="1" max="8192" step="1" required>
+  </label>
+  <label>Height (px)
+    <input type="number" name="height" value="{{ params.height }}" min="1" max="8192" step="1" required>
+  </label>
 </form>
 <p class="muted">Forecast source: <a href="https://www.weatherapi.com/">WeatherAPI.com</a>. Sample weather follows the selected date; mode and units follow Settings. Percentages refer to the sampled hour in 2h/3h modes.</p>
 
@@ -44,7 +50,11 @@
   <legend>Zoom</legend>
   <label><input type="radio" name="zoom" value="1"> 1×</label>
   <label><input type="radio" name="zoom" value="2"> 2×</label>
-  <label><input type="radio" name="zoom" value="mm"> 1:1 physical</label>
+  <label><input type="radio" name="zoom" value="mm" {% if params.width != 800 or params.height != 480 %}disabled{% endif %}> 1:1 physical</label>
+  <label>Panel width (mm)
+    <input type="number" id="physical-width" name="physical_width_mm" min="0" step="any"
+           value="{{ '163.2' if params.width == 800 and params.height == 480 else '' }}" placeholder="Optional">
+  </label>
 </fieldset>
 
 {% if note %}<p class="warn">{{ note }}</p>{% endif %}
@@ -52,12 +62,12 @@
 <div class="preview-panes">
   <div>
     <h2>HTML layout</h2>
-    <iframe id="html-pane" src="/display?{{ query }}" width="800" height="480" scrolling="no" title="Display HTML"></iframe>
+    <iframe id="html-pane" src="/display?{{ query }}" width="{{ params.width }}" height="{{ params.height }}" scrolling="no" title="Display HTML"></iframe>
   </div>
   <div>
     <h2>Panel image (1-bit)</h2>
     <div class="panel">
-      <img id="png-pane" src="/preview/frame.png?{% if query %}{{ query }}&{% endif %}v={{ version }}" width="800" height="480"
+      <img id="png-pane" src="/preview/frame.png?{% if query %}{{ query }}&{% endif %}v={{ version }}" width="{{ params.width }}" height="{{ params.height }}"
            style="image-rendering: pixelated" alt="Rendered panel image">
     </div>
   </div>
@@ -107,18 +117,41 @@
   setTimeout(poll, 2000);
 
   const calib = document.getElementById("calib"), card = document.getElementById("calib-card");
+  const width = {{ params.width }}, height = {{ params.height }};
+  const physicalWidth = document.getElementById("physical-width");
+  const physicalKey = `hcs.physicalWidthMm.${width}x${height}`;
+  physicalWidth.value = localStorage.getItem(physicalKey) ?? physicalWidth.value;
+  const physicalMm = () => {
+    const value = Number(physicalWidth.value);
+    return physicalWidth.validity.valid && Number.isFinite(value) && value > 0 ? value : null;
+  };
   const pxPerMm = () => parseFloat(localStorage["hcs.pxPerMm"]) || 96 / 25.4;
   function applyZoom() {
-    const z = localStorage["hcs.zoom"] || "1";
-    const w = z === "2" ? 1600 : z === "mm" ? 163.2 * pxPerMm() : 800;
+    let z = localStorage["hcs.zoom"] || "1";
+    const mm = physicalMm();
+    document.querySelector('#zoom input[value="mm"]').disabled = mm === null;
+    if (!["1", "2", "mm"].includes(z) || (z === "mm" && mm === null)) {
+      z = "1";
+      localStorage["hcs.zoom"] = z;
+    }
+    const w = z === "2" ? width * 2 : z === "mm" ? mm * pxPerMm() : width;
     img.style.width = `${w}px`;
-    img.style.height = `${w * 0.6}px`;
-    iframe.style.zoom = w / 800;
-    document.querySelectorAll("#zoom input").forEach((r) => { r.checked = r.value === z; });
+    img.style.height = `${w * height / width}px`;
+    iframe.style.zoom = w / width;
+    document.querySelectorAll('#zoom input[type="radio"]').forEach((r) => { r.checked = r.value === z; });
     calib.value = pxPerMm();
     card.style.width = `${85.6 * pxPerMm()}px`;
   }
-  document.getElementById("zoom").onchange = (e) => { localStorage["hcs.zoom"] = e.target.value; applyZoom(); };
+  document.getElementById("zoom").onchange = (e) => {
+    if (e.target.type === "radio") {
+      localStorage["hcs.zoom"] = e.target.value;
+      applyZoom();
+    }
+  };
+  physicalWidth.oninput = () => {
+    localStorage.setItem(physicalKey, physicalWidth.value);
+    applyZoom();
+  };
   calib.oninput = () => { localStorage["hcs.pxPerMm"] = calib.value; applyZoom(); };
   applyZoom();
 </script>

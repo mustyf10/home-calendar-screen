@@ -15,6 +15,7 @@ from app import clock, settings_store
 from app.calendars.sync import sync_window
 from app.clock import fmt_day
 from app.display.data import DisplayModel, compose, load_inputs, warning
+from app.display.geometry import parse_size
 from app.display.scenarios import SCENARIOS, scenario_now
 from app.models import Calendar, CalendarEvent, Dish, MenuEntry
 from app.weather.forecast import boundaries, select_weather
@@ -49,12 +50,16 @@ class PreviewParams:
     warn: tuple[str, ...]
     offline: time | None
     weather: str | None = None
+    width: int = 800
+    height: int = 480
 
     def query(self) -> str:
         """Canonical query string: keys sorted, defaults and empty values omitted."""
         pairs = []
         if self.at:
             pairs.append(("at", f"{self.at:%Y-%m-%dT%H:%M}"))
+        if self.height != 480:
+            pairs.append(("height", self.height))
         if self.offline:
             pairs.append(("offline", f"{self.offline:%H:%M}"))
         if self.scenario != "real":
@@ -62,6 +67,8 @@ class PreviewParams:
         pairs += [("warn", w) for w in self.warn]
         if self.weather:
             pairs.append(("weather", self.weather))
+        if self.width != 800:
+            pairs.append(("width", self.width))
         return urlencode(pairs)
 
 
@@ -73,7 +80,8 @@ def _parse(value: str | None, fmt: str) -> datetime | None:
 
 
 def parse_params(query) -> PreviewParams:
-    """query: a multi-dict such as Starlette's QueryParams. Invalid values fall back silently."""
+    """Parse preview controls; invalid geometry raises 422, other invalid values fall back."""
+    size = parse_size(query)
     at = _parse(query.get("at"), "%Y-%m-%dT%H:%M")
     if at and abs((at.date() - clock.today()).days) > MAX_AT_DAYS:
         at = None
@@ -86,6 +94,8 @@ def parse_params(query) -> PreviewParams:
         warn=tuple(w for w in FORCED_WARNINGS if w in warn),
         offline=offline.time() if offline else None,
         weather=query.get("weather") if query.get("weather") in WEATHER_LABELS else None,
+        width=size.width,
+        height=size.height,
     )
 
 
