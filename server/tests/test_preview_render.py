@@ -1,5 +1,6 @@
 import asyncio
 import io
+from datetime import datetime
 
 import pytest
 from PIL import Image
@@ -7,6 +8,8 @@ from starlette.datastructures import QueryParams
 
 from app.display import preview_render, render
 from app.display.preview import parse_params
+from app.display.geometry import FrameSize, fit_png
+from app.display.stamp import stamp
 from app.heavy import heavy_lock
 
 pytestmark = pytest.mark.usefixtures("fixed_clock")
@@ -168,3 +171,50 @@ def test_weather_overrides_have_isolated_preview_cache_entries_and_leave_panel_u
     assert rig.frame("weather=sample&scenario=busy", "v1") == sample
     assert rig.shots == ["/display?scenario=busy&weather=sample", "/display?scenario=busy&weather=snow"]
     assert render._cache == before
+
+
+@pytest.mark.parametrize("width,height", [(400, 240), (600, 800), (1200, 825)])
+def test_target_geometry_uses_canonical_screenshot(rig, width, height):
+    png, ver = rig.frame(f"width={width}&height={height}&scenario=busy&weather=snow", "v1")
+    assert rig.shots == ["/display?scenario=busy&weather=snow"]
+    assert ver == "v1"
+    image = Image.open(io.BytesIO(png))
+    assert image.size == (width, height)
+    assert image.mode == "1"
+
+
+def test_geometry_has_isolated_cache_entries_even_while_busy(rig):
+    canonical = rig.frame("scenario=busy", "v1")
+    portrait = rig.frame("scenario=busy&width=600&height=800", "v1")
+
+    async def while_locked():
+        async with heavy_lock:
+            return await rig._frame("scenario=busy&width=600&height=800", "v2")
+
+    assert asyncio.run(while_locked()) == portrait
+    assert rig.frame("scenario=busy", "v1") == canonical
+    assert Image.open(io.BytesIO(portrait[0])).size == (600, 800)
+    assert rig.shots == ["/display?scenario=busy", "/display?scenario=busy"]
+
+
+@pytest.mark.parametrize("width,height", [(400, 240), (600, 800)])
+def test_preview_stamp_matches_client_stamp_after_fitting(rig, width, height):
+    # The asymmetric source catches shifts and changes outside the stamped rectangle.
+    source = Image.new("1", (800, 480), 1)
+    source.paste(0, (30, 40, 300, 170))
+    source.paste(0, (620, 300, 770, 460))
+    out = io.BytesIO()
+    source.save(out, format="PNG")
+    canonical = out.getvalue()
+
+    async def shoot(path):
+        rig.shots.append(path)
+        return canonical
+
+    rig.shoot = shoot
+    preview_png, _ = rig.frame(f"width={width}&height={height}&offline=07:30", "v1")
+    fitted = Image.open(io.BytesIO(fit_png(canonical, FrameSize(width, height))))
+    client_stamped = stamp(fitted, datetime(2026, 10, 16, 7, 30))
+    preview_image = Image.open(io.BytesIO(preview_png))
+    assert preview_image.mode == client_stamped.mode == "1"
+    assert preview_image.tobytes() == client_stamped.tobytes()
