@@ -7,8 +7,11 @@
   /* The web UI's black-and-white sibling: a black "today" date block, outlined pill section
      headers, black rounded today markers. Pure #000/#fff only (thresholded to 1-bit), strokes ≥2px. */
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 800px; height: 480px; overflow: hidden; background: #fff; color: #000; }
-  body { font-family: "DejaVu Sans", sans-serif; display: flex; position: relative; }
+  html, body { width: {{ size.width }}px; height: {{ size.height }}px; overflow: hidden; background: #fff; color: #000; }
+  body { font-family: "DejaVu Sans", sans-serif; position: relative; }
+  .display-canvas { width: 800px; height: 480px; display: flex; position: absolute;
+    left: {{ size.bounds[2] }}px; top: {{ size.bounds[3] }}px; transform-origin: top left;
+    transform: scale({{ size.bounds[0] / 800 }}, {{ size.bounds[1] / 480 }}); }
 
   .left { width: 282px; flex: none; padding: 10px 14px 0 14px; }
   .date-block { background: #000; color: #fff; border-radius: 18px; padding: 10px 16px 10px; margin-bottom: 10px; }
@@ -79,7 +82,8 @@
   .weather-unavailable { font-size: 14px; font-weight: bold; line-height: 24px; }
 </style>
 </head>
-<body{% if m.warning %} class="has-warning"{% endif %}>
+<body>
+<div class="display-canvas{% if m.warning %} has-warning{% endif %}">
   <section class="left{% if m.weather is not none %} weather-enabled{% endif %}">
     <div class="date-block">
       <div class="weekday">{{ m.header.weekday }}</div>
@@ -124,5 +128,6 @@
     </div>
   </section>
   {% if m.warning %}<div class="warning">{{ m.warning }}</div>{% endif %}
+</div>
 </body>
 </html>

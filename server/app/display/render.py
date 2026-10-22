@@ -8,6 +8,7 @@ from PIL import Image
 from playwright.async_api import async_playwright
 
 from app.config import config
+from app.display.geometry import FrameSize, fit_png
 from app.heavy import heavy_lock
 
 WIDTH, HEIGHT = 800, 480
@@ -15,6 +16,7 @@ MAX_AGE_S = 60
 
 _lock = asyncio.Lock()
 _cache: dict = {"png": None, "etag": None, "rendered_at": 0.0}
+_sized_cache: dict[tuple[str, int, int], tuple[bytes, str]] = {}
 
 
 def to_one_bit(screenshot: bytes) -> bytes:
@@ -52,3 +54,17 @@ async def get_frame() -> tuple[bytes, str]:
             png = to_one_bit(await screenshot())
             _cache.update(png=png, etag=etag_for(png), rendered_at=time.monotonic())
         return _cache["png"], _cache["etag"]
+
+
+async def get_sized_frame(size: FrameSize) -> tuple[bytes, str]:
+    """Reuse the canonical render, caching up to eight target representations."""
+    png, etag = await get_frame()
+    if size == FrameSize():
+        return png, etag
+    key = (etag, size.width, size.height)
+    if key not in _sized_cache:
+        fitted = fit_png(png, size)
+        _sized_cache[key] = (fitted, etag_for(fitted))
+        if len(_sized_cache) > 8:
+            del _sized_cache[next(iter(_sized_cache))]
+    return _sized_cache[key]

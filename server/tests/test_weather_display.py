@@ -6,6 +6,7 @@ import pytest
 
 from app import settings_store
 from app.display.data import DisplayInputs, compose, load_inputs
+from app.display.geometry import FrameSize
 from app.display.preview import parse_params, preview_model
 from app.weather.scenarios import sample_weather
 from app.web import templates
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.usefixtures("fixed_clock")
 
 
 def screen(model):
-    return templates.env.get_template("display.html").render(m=model)
+    return templates.env.get_template("display.html").render(m=model, size=FrameSize())
 
 
 def test_disabled_weather_preserves_display_layout(session):
