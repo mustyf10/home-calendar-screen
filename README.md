@@ -152,7 +152,9 @@ Set these in the server process environment. With the supplied Compose file, put
 | `DATA_DIR` | `/data` | SQLite `app.db` and uploaded/downloaded `media/`. |
 | `BACKUP_DIR` | `/backups` | Existing directory for database snapshots and the media mirror. |
 
-The Compose mounts map `./data` and `./backups` to those container paths. It does not forward `DATA_DIR`/`BACKUP_DIR` from `.env`; change the Compose environment and mounts together if you need different container paths. Calendars, pantry, weather location, bins and night-pause settings live in SQLite, not environment variables.
+The Compose mounts map `./data` to `/data` and `./backups` to `/backups`. Compose also loads `.env` into the container. Leave `DATA_DIR` and `BACKUP_DIR` unset to keep these storage paths. If you override either, update the matching container mount destination too.
+
+Calendars, pantry, weather location, bins and night-pause settings live in SQLite, not environment variables.
 
 A private reverse proxy can provide HTTPS. Keep access restricted to trusted users and only forward traffic from a trusted proxy: the container enables proxy headers. For a private certificate authority, install its root certificate on browsers/phones and configure the display client's `CA_FILE`; do not disable certificate verification.
 
