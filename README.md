@@ -210,6 +210,112 @@ sudo systemctl start home-calendar-frame.timer
 
 No other panels' adapters are supplied or claimed to work automatically. The installer accepts only no arguments or `--generic`.
 
+### Show the screen on a different device
+
+The server and the screen do not need to be the same machine. The server only publishes a PNG over HTTP; any device that can reach it and run the client drives its own display. Typical case: the planner runs in Docker on a NAS or home server, and a Raspberry Pi or other small Linux board with an e-ink (or other) panel polls it.
+
+**1. Check the device can reach the server.** On the display device, run `curl http://your-server:8000/healthz` (install it with `sudo apt-get install -y curl` if missing; `--generic` doesn't); it should return `{"ok":true}`. Use the server's LAN name or IP, never `localhost`/`127.0.0.1`. The device needs read access only; keep port 8000 private (see the warning at the top). For HTTPS with a private CA, set `CA_FILE` as described above.
+
+**2. Find your panel's pixel size and mounting.** Look it up in the manufacturer's data sheet (for example 800×480, 296×128, 600×448). Note whether the panel is mounted rotated. The server renders sizes up to 8192 pixels per side and 16,777,216 pixels in total (see Output sizes below), fitted onto white from the 800×480 design, so very small panels give small text. Check how it looks first in `/preview` by entering the panel's width and height.
+
+**3. Copy the client and install it.** Use the same `rsync -rL display-client/ user@device:~/home-calendar-frame/` as above, then on the device run `cd ~/home-calendar-frame` and:
+
+- Raspberry Pi with the bundled Waveshare 7.5-inch V2 panel: `sudo ./install.sh`.
+- Any other panel or board (apt-based Linux with systemd): `sudo ./install.sh --generic`, then continue with step 4. The generic installer enables the timer without starting it.
+
+On the Raspberry Pi path the installer enables **and starts** the timer immediately, so set `FRAME_URL` in step 5 before expecting a useful result; until then the client polls the placeholder URL and fails.
+
+**4. Provide an adapter for your panel.** Only the Waveshare 7.5-inch V2 adapter is bundled. For anything else, write a small Python module that wraps your panel's vendor library, following the contract in *Adapter contract, client options and refresh safety* below: a `create()` factory returning an object with a `spec` (`PanelSpec`) and a `show(image)` method. `image` is a mode-`1` Pillow image exactly the size in `spec.size`. Import hardware libraries inside `show`, not at module level. Example skeleton (`vendor_epd` stands for your panel vendor's library; its calls differ per vendor, so adapt them):
+
+```python
+# /opt/home-calendar-frame/adapters/my_panel.py
+from datetime import timedelta
+
+from . import PanelSpec
+
+
+class MyPanel:
+    # Size of the image handed to show(), as (width, height); see the rotation note below
+    spec = PanelSpec(
+        (296, 128),
+        min_interval=timedelta(seconds=180),  # fastest safe redraw spacing for your panel
+        maintenance_after=timedelta(hours=23, minutes=45),  # or None to disable
+        max_interval=timedelta(hours=24),                   # or None to disable
+    )
+
+    def show(self, image) -> None:
+        import vendor_epd  # hardware dependency, imported lazily
+
+        # Only if the panel is mounted rotated (see below); omit otherwise.
+        # Needs Pillow 9.1 or newer; older versions use Image.ROTATE_90:
+        # from PIL import Image
+        # image = image.transpose(Image.Transpose.ROTATE_90)
+        panel = vendor_epd.Panel()
+        try:
+            panel.init()
+            panel.display(image)
+        finally:
+            panel.sleep()
+
+
+def create() -> MyPanel:
+    return MyPanel()
+```
+
+`spec.size` is the size of the image the client hands to `show`, which is the size it requests from the server. If the panel is mounted rotated, set `spec.size` to the orientation you read it in (for example `(128, 296)` for a 296×128 panel mounted portrait), and rotate inside `show` into the panel's native orientation, as in the commented line above. Use the same orientation for `FRAME_WIDTH`/`FRAME_HEIGHT` and for the size you try in `/preview`. Set `min_interval` and the maintenance timings from your panel's refresh guidance. Panels that are not e-ink (such as an LCD or OLED) can set `maintenance_after` and `max_interval` to `None` and use a short `min_interval`. The client still polls only every five minutes.
+
+Install the vendor library on the device, and enable any bus the panel needs (SPI, I²C, USB). The service runs as the user who ran `install.sh`. The bundled Raspberry Pi installer adds that user to the `spi` and `gpio` groups, but `--generic` does not: add them to whichever groups your panel needs (for example `sudo usermod -aG spi,gpio,i2c,dialout "$USER"`; keep only the ones that exist). The service picks up new groups the next time it starts; for manual runs, log out and in first. Copying files into `/opt/home-calendar-frame/` needs `sudo`. Put the file in `/opt/home-calendar-frame/adapters/` (`FRAME_DRIVER=adapters.my_panel:create`) or, with the import changed to `from adapters import PanelSpec`, at `/opt/home-calendar-frame/my_panel.py` (`FRAME_DRIVER=my_panel:create`). Re-running the installer replaces only bundled adapter files with the same name as files in the repository's `display-client/adapters/`; it deletes nothing, so a custom adapter with a different filename survives. Keep a copy in the repository checkout anyway so you can reinstall the device from scratch.
+
+**5. Configure the device.** Edit `/etc/home-calendar-frame/frame.env`:
+
+```dotenv
+FRAME_URL=http://your-server:8000/display/frame.png
+FRAME_DRIVER=adapters.my_panel:create
+# Optional; if set, must equal the adapter's spec.size:
+# FRAME_WIDTH=296
+# FRAME_HEIGHT=128
+```
+
+The client adds the width and height from the adapter's spec to the URL itself, so the server returns an image sized for this panel. Several devices with different panels can share one server.
+
+**6. Test, then start polling.** First check the image without hardware. On the device, run a dry run with your panel's size. Use a throwaway state directory and delete it (`rm -rf /tmp/hcs-dry-run`) before each repeat run, because the redraw spacing guard skips a second draw within three minutes. Dry-run still obeys night pause, so disable it in Settings → Display if needed:
+
+```sh
+python3 /opt/home-calendar-frame/frame.py \
+  --url http://your-server:8000/display/frame.png \
+  --width 296 --height 128 \
+  --state-dir /tmp/hcs-dry-run \
+  --dry-run --out /tmp/hcs-dry-run.png
+```
+
+Open the PNG to check the layout. Then run one real refresh and read the log:
+
+```sh
+sudo systemctl start home-calendar-frame.service
+journalctl -u home-calendar-frame -n 20
+```
+
+If it draws correctly, enable continuous polling with `sudo systemctl enable --now home-calendar-frame.timer`. The generic installer already *enabled* the timer, so even if you skip this step it starts polling about a minute after the next reboot: configure `frame.env` and the adapter before rebooting.
+
+**Separate state per screen.** Refresh history lives in `/var/lib/home-calendar-frame` and belongs to one physical screen. Each device running its own client has its own copy, which is fine. If you swap the panel or adapter on the same device, give the service a new state directory with a systemd drop-in rather than deleting history:
+
+```sh
+sudo install -d -o "$USER" /var/lib/home-calendar-frame-newpanel
+sudo systemctl edit home-calendar-frame.service
+```
+
+and in the editor add:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 /opt/home-calendar-frame/frame.py --state-dir /var/lib/home-calendar-frame-newpanel
+```
+
+Drop-ins survive reinstalling the client. Run the install and `systemctl edit` commands as the same user that ran `install.sh`, since the service runs as that user.
+
+**Devices that cannot run this client** (microcontrollers, or displays with their own firmware) can fetch `http://your-server:8000/display/frame.png?width=W&height=H` themselves. They must respect the night-pause policy in the `X-Display-Policy` header and the panel's safe refresh limits. No firmware is provided here.
+
 ### Try the client without hardware
 
 Direct use needs Python, Pillow and a POSIX host with `fcntl.flock`; it does not need systemd. Windows is not supported by this client. With the development environment below installed, run from the repository root:
