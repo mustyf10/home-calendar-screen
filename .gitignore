@@ -9,3 +9,13 @@ __pycache__/
 .impeccable/ref/
 .impeccable/review/
 .impeccable/config.local.json
+
+# Local agent/tooling state and generated skill copies
+.agents/
+.claude/
+.codex/
+.github/agents/
+.github/hooks/
+.github/skills/
+.omc/
+.omp/
