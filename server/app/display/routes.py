@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.calendars.routes import _page
 from app.db import get_session
-from app.display.geometry import parse_size
+from app.display.geometry import FrameSize, parse_size
 from app.display.preview import parse_params, preview_model
 from app.display.render import get_sized_frame
 from app.display.settings import load_policy, save_policy
@@ -21,8 +21,9 @@ router = APIRouter()
 @router.get("/display")
 def display(request: Request, session: Session = Depends(get_session)):
     """The panel's layout; preview query params (see preview.parse_params) only change what it shows."""
-    size = parse_size(request.query_params)
-    model, _ = preview_model(session, parse_params(request.query_params))
+    params = parse_params(request.query_params)
+    size = FrameSize(params.width, params.height)
+    model, _ = preview_model(session, params)
     return render(request, "display.html", {"m": model, "size": size})
 
 
