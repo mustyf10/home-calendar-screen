@@ -342,16 +342,17 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
         if args.dry_run:
-            size = (args.width if args.width is not None else 800,
-                    args.height if args.height is not None else 480)
-            panel = replace(DEFAULT_PANEL_SPEC, size=size)
-            show = file_show(args.out)
+            panel = DEFAULT_PANEL_SPEC
         else:
             adapter = load_adapter(args.driver)
             panel = adapter.spec
-            size = (args.width if args.width is not None else panel.size[0],
-                    args.height if args.height is not None else panel.size[1])
-            validate_size(size)
+        size = (args.width if args.width is not None else panel.size[0],
+                args.height if args.height is not None else panel.size[1])
+        validate_size(size)
+        if args.dry_run:
+            panel = replace(panel, size=size)
+            show = file_show(args.out)
+        else:
             if size != panel.size:
                 raise ValueError("explicit dimensions must match the selected adapter")
             show = adapter.show
