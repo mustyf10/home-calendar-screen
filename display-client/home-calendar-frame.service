@@ -7,5 +7,7 @@ After=network-online.target
 Type=oneshot
 User=__FRAME_USER__
 EnvironmentFile=/etc/home-calendar-frame/frame.env
+# lgpio creates notification pipes in LG_WD (default: cwd, root-owned /opt); gpiozero then falls back to broken sysfs.
+Environment=LG_WD=/var/lib/home-calendar-frame
 WorkingDirectory=/opt/home-calendar-frame
 ExecStart=/usr/bin/python3 /opt/home-calendar-frame/frame.py

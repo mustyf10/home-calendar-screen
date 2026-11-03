@@ -498,6 +498,7 @@ server/.venv/bin/python -m pytest -q display-client
 | A custom image size returns 422 | Use one integer `width`/`height` each, 1–8192, within the total pixel limit. Ensure the running server release includes portable output. |
 | Dry-run produces no new file or panel does not redraw | Check night pause, refresh spacing/history, valid policy from the server and frame URL. Do not erase a physical screen's state to force it. |
 | Client rejects size or driver | Real-mode dimensions must match the adapter. Install the local module/dependencies and copy `adapters/` plus `stamp.py`, not just `frame.py`. |
+| Pi client fails with `OSError: [Errno 22] Invalid argument` from `gpiozero/pins/native.py` | gpiozero could not use lgpio and fell back to the old sysfs interface, which current kernels reject. Rerun `sudo ./install.sh` from the latest client so the service gets `LG_WD`, then run `sudo systemctl start home-calendar-frame.service`. The service picks up the `gpio`/`spi` groups when it starts; reboot only if `/dev/spidev0.0` is missing. |
 | HTTPS fails on the client | Supply the correct private root CA via `CA_FILE`; check hostname and certificate validity. Do not bypass TLS checks. |
 | Weather is missing | Add `WEATHER_API_KEY`, recreate the server, select a location **and enable weather**. Expired/out-of-range cached forecasts are hidden. |
 | Shopping Copy fails | Allow clipboard access and use HTTPS or localhost; alternatively select/copy the visible text. |
