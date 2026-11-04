@@ -3,10 +3,11 @@
 Nutrition comes only from the saved ingredient list (never the title) and is stored on `Dish.nutrition`:
 
     {"status": "ready", "fingerprint": ..., "totals": {7 whole-recipe numbers}, "estimated_servings": int | None,
-     "assumptions": [str], "rough": bool, "estimated_at": iso}
+     "assumptions": [str], "estimated_at": iso}
     {"status": "failed", "fingerprint": ..., "error": str, "estimated_at": iso}
 
 Per-serving values are derived locally from the totals, so a serving-count edit never costs a Claude call.
+The rough-estimate label is derived from quantity assumptions and whether the current serving count is estimated.
 A failed marker is tied to the ingredient fingerprint it was tried for: it is never retried automatically,
 only by an explicit POST or by changing the ingredients.
 """
