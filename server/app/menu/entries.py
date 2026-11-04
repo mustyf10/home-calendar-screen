@@ -43,18 +43,22 @@ def week_entries(session: Session, start: date) -> list[tuple[date, EffectiveEnt
     return [(d, effective_entry(d, rows.get(d))) for d in days]
 
 
-def _upsert(session: Session, d: date, kind: str, dish_id: int | None) -> None:
+def _upsert(session: Session, d: date, kind: str, dish_id: int | None, commit: bool = True) -> None:
     row = session.get(MenuEntry, d)
     if row is None:
         session.add(MenuEntry(date=d, kind=kind, dish_id=dish_id))
     else:
         row.kind = kind
         row.dish_id = dish_id
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
 
 
-def set_dish(session: Session, d: date, dish_id: int) -> None:
-    _upsert(session, d, "dish", dish_id)
+def set_dish(session: Session, d: date, dish_id: int, commit: bool = True) -> None:
+    """commit=False leaves the commit to the caller, so it can land with other writes."""
+    _upsert(session, d, "dish", dish_id, commit)
 
 
 def set_takeaway(session: Session, d: date) -> None:

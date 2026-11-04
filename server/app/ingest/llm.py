@@ -20,6 +20,7 @@ TAG_RULES = """Tagging rules:
 
 EXTRACT_SYSTEM = """Extract one recipe from the material provided.
 Classify type as one of:
+- breakfast: morning dishes such as eggs, pancakes, porridge or granola
 - dinner: a main meal
 - snack: snacks and savouries such as samosas or pakoras
 - dessert

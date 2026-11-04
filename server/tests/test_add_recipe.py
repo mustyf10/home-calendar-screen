@@ -160,12 +160,138 @@ def test_non_image_screenshot_is_rejected_without_saving(client, db, no_network)
     assert db.scalars(select(Dish)).all() == []
 
 
-def test_duplicate_link_is_still_refused(client, db, no_network):
+@pytest.fixture
+def no_uploads(monkeypatch):
+    """Reading or storing a photo or screenshot during a duplicate submission fails the test."""
+    from app.dishes import routes
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a duplicate submission must not touch uploads")
+
+    monkeypatch.setattr(routes.uploads, "read_images", forbidden)
+    monkeypatch.setattr(routes.images, "save_dish_image", forbidden)
+
+
+def assert_nothing_new(db, existing: int = 1):
+    db.expire_all()
+    assert len(db.scalars(select(Dish)).all()) == existing
+    assert db.scalars(select(IngestJob)).all() == []
+
+
+def post_new(client, **data):
+    return client.post("/dishes", data={"type": "dinner", **data}, follow_redirects=False)
+
+
+def test_duplicate_link_opens_the_saved_recipe_without_work(client, db, no_network, no_uploads):
     other = add_dish(db, "Old wraps", source_url="https://tiktok.com/@cook/video/7400000000000000001")
-    r = client.post("/dishes", data={"title": "", "type": "dinner", "source_url": TIKTOK})
+    r = client.post(
+        "/dishes", data={"title": "", "type": "dinner", "source_url": TIKTOK + "/", "text": "caption"},
+        files=[("images", ("a.png", png(), "image/png")), ("image", ("p.png", png(), "image/png"))],
+        follow_redirects=False,
+    )
+
+    assert (r.status_code, r.headers["location"]) == (303, f"/dishes/{other.id}")
+    assert_nothing_new(db)
+
+
+def test_unicode_titles_match_ignoring_case_and_whitespace(client, db, no_network, no_uploads):
+    other = add_dish(db, "Crème Brûlée")
+
+    assert post_new(client, title="  CRÈME   brûlée ").headers["location"] == f"/dishes/{other.id}"
+    assert_nothing_new(db)
+
+
+@pytest.mark.parametrize("entered", ["daal", "  DAAL   "])
+def test_equivalent_title_opens_the_saved_recipe_even_with_a_new_link(client, db, no_network, no_uploads, entered):
+    other = add_dish(db, "Daal")
+    r = post_new(client, title=entered, source_url="https://example.com/new-daal")
+
+    assert (r.status_code, r.headers["location"]) == (303, f"/dishes/{other.id}")
+    assert_nothing_new(db)
+
+
+def test_conflicting_link_and_title_matches_open_the_link_match(client, db, no_network, no_uploads):
+    by_title = add_dish(db, "Daal")
+    by_link = add_dish(db, "Old wraps", source_url="https://tiktok.com/@cook/video/7400000000000000001")
+    r = post_new(client, title="Daal", source_url=TIKTOK)
+
+    assert r.headers["location"] == f"/dishes/{by_link.id}" != f"/dishes/{by_title.id}"
+    assert_nothing_new(db, 2)
+
+
+def test_archived_matches_open_without_restoring(client, db, no_network, no_uploads):
+    by_title = add_dish(db, "Daal", archived=True)
+    by_link = add_dish(db, "Old wraps", archived=True, source_url="https://tiktok.com/@cook/video/7400000000000000001")
+
+    assert post_new(client, title="daal").headers["location"] == f"/dishes/{by_title.id}"
+    assert post_new(client, title="", source_url=TIKTOK).headers["location"] == f"/dishes/{by_link.id}"
+    assert_nothing_new(db, 2)
+    assert by_title.archived and by_link.archived
+
+
+def test_active_title_match_beats_an_archived_one_then_lowest_id(client, db, no_network):
+    add_dish(db, "Daal", archived=True)
+    first = add_dish(db, "daal")
+    add_dish(db, "DAAL")
+
+    assert post_new(client, title="Daal").headers["location"] == f"/dishes/{first.id}"
+
+
+def test_title_punctuation_and_letters_still_distinguish_recipes(client, db, no_network):
+    add_dish(db, "Mac & Cheese")
+    r = post_new(client, title="Mac and Cheese")
+
+    assert r.status_code == 303 and r.headers["location"].endswith("?created=1")
+    assert len(db.scalars(select(Dish)).all()) == 2
+
+
+def test_blank_title_with_a_link_never_matches_by_placeholder(client, db, no_network):
+    add_dish(db, "Recipe from TikTok")
+    r = post_new(client, title="", source_url=TIKTOK)
+
+    assert r.headers["location"].endswith("?created=1")
+    assert len(db.scalars(select(Dish)).all()) == 2
+
+
+def test_repeated_equivalent_submission_creates_one_recipe_and_one_job(client, db, no_network):
+    first = post_new(client, title="Daal")
+    again = post_new(client, title="  daal ")
+
+    assert first.headers["location"].endswith("?created=1")
+    dish = db.scalars(select(Dish)).one()
+    assert again.headers["location"] == f"/dishes/{dish.id}"
+    assert only_job(db).dish_id == dish.id
+
+
+def test_link_collision_at_commit_opens_the_winner_without_a_job(client, db, no_network, monkeypatch):
+    """Both checks miss (as if the winner committed in between): the unique link still stops the second save."""
+    from app.dishes import routes
+
+    winner = add_dish(db, "Old wraps", source_url="https://tiktok.com/@cook/video/7400000000000000001")
+    monkeypatch.setattr(routes, "existing_dish", lambda session, inp: None)
+    monkeypatch.setattr(routes, "validate", lambda *a, **k: {})
+    r = post_new(client, title="", source_url=TIKTOK)
+
+    assert (r.status_code, r.headers["location"]) == (303, f"/dishes/{winner.id}")
+    assert_nothing_new(db)
+
+
+def test_editing_into_another_recipes_link_is_still_a_validation_error(client, db, no_network):
+    other = add_dish(db, "Old wraps", source_url="https://tiktok.com/@cook/video/7400000000000000001")
+    mine = add_dish(db, "Mine")
+    r = client.post(f"/dishes/{mine.id}", data={"title": "Mine", "type": "dinner", "source_url": TIKTOK},
+                    follow_redirects=False)
 
     assert r.status_code == 422
     assert f'Already saved as <a href="/dishes/{other.id}">Old wraps</a>' in r.text
+
+
+def test_editing_to_an_existing_title_does_not_redirect(client, db, no_network):
+    add_dish(db, "Daal")
+    mine = add_dish(db, "Mine")
+    r = client.post(f"/dishes/{mine.id}", data={"title": "daal", "type": "dinner"}, follow_redirects=False)
+
+    assert (r.status_code, r.headers["location"]) == (303, f"/dishes/{mine.id}")
 
 
 def test_add_page_has_link_caption_screenshots_and_batch_link(client):

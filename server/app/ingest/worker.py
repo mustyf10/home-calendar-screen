@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 
 from app.config import config
 from app.db import SessionLocal
+from app.dishes import generation, nutrition
 from app.errors import log_failure, user_message
 from app.heavy import heavy_lock
 from app.ingest import images, llm, video, web
@@ -49,6 +50,7 @@ def recover() -> None:
     with SessionLocal() as s:
         s.execute(update(IngestJob).where(IngestJob.status.in_(ACTIVE_JOB_STATUSES)).values(status="queued"))
         s.execute(update(ImportBatch).where(ImportBatch.status == "grouping").values(status="queued"))
+        generation.recover(s)
         s.commit()
 
 
@@ -66,10 +68,16 @@ def next_item() -> tuple[str, int] | None:
             .order_by(ImportBatch.created_at, ImportBatch.id)
             .limit(1)
         ).first()
-    if batch and (not job or batch.created_at <= job.created_at):
-        return "batch", batch.id
-    if job:
-        return "job", job.id
+        if batch and (not job or batch.created_at <= job.created_at):
+            return "batch", batch.id
+        if job:
+            return "job", job.id
+        dish_id = generation.next_dish(s)
+        if dish_id is not None:
+            return "generation", dish_id
+        dish_id = nutrition.next_dish(s)
+        if dish_id is not None:
+            return "nutrition", dish_id
     return None
 
 
@@ -82,6 +90,10 @@ async def run_worker() -> None:
                 await asyncio.sleep(2)
             elif item[0] == "batch":
                 await asyncio.to_thread(run_batch, item[1])
+            elif item[0] == "generation":
+                await asyncio.to_thread(generation.run, item[1])
+            elif item[0] == "nutrition":
+                await asyncio.to_thread(nutrition.run, item[1])
             else:
                 await run_job(item[1])
         except asyncio.CancelledError:

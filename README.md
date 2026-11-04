@@ -118,9 +118,19 @@ With an Anthropic key, add a recipe link, paste source text or upload screenshot
 
 Search the library and filter by recipe category or tag. Archive recipes you no longer want in normal browsing and suggestions.
 
+**Breakfast** is a recipe category and filter. It does not add breakfast slots to the weekly dinner menu or change what the dice suggests.
+
+**Duplicates:** submitting a saved link or an existing title on Add a recipe opens the saved recipe instead of starting another import. Title matching ignores case and repeated whitespace, but preserves punctuation. When the link and title match different recipes, the saved link takes priority. Archived matches open without being restored.
+
+**Nutrition:** with an Anthropic key, the background worker estimates calories, protein, carbs, fat, fibre, sugar and salt from saved ingredients, including existing non-archived recipes. Values appear per serving on the recipe page. Missing quantities and serving counts may be estimated; the page discloses those assumptions. These are estimates, not laboratory measurements. Ingredient changes trigger a fresh estimate; changing servings recalculates the stored totals locally. Imports take priority, so a backfill may take time. Failed estimates show a manual retry rather than repeatedly calling the model.
+
+**Missing ingredients:** use **Generate recipe** to request an AI-written draft from the title and description. This is not extraction from the saved link. Edit its ingredients, steps and servings, then approve or discard it. Approval saves only those fields; discarding leaves the recipe unchanged. Nutrition is estimated only after ingredients are saved. A failed import never silently becomes a generated recipe.
+
 ### 3. Plan the week
 
 Open **Menu** (`/menu`). Weeks run **Saturday–Friday**. Pick a saved recipe for a day, choose takeaway, or clear the selection. The dice suggests dinners from your library, not AI-generated meals. Tags narrow the suggestions; the dice avoids recipes scheduled within 21 days of that date. You can still pick a recipe manually when it warns about a repeat.
+
+In **Choose…**, typing a title that has no exact match offers **Create** alongside any partial search results. It saves a Dinner recipe and selects it for that day without leaving the menu; use its edit link to add ingredients. If the recipe already exists when submitted, the picker only selects it, without creating another recipe or import. Archived title matches offer a link instead of creation.
 
 ### 4. Build the shopping list
 
@@ -146,7 +156,7 @@ Set these in the server process environment. With the supplied Compose file, put
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TZ` | `Europe/London` | Calendar/menu dates, backup time and display night-pause timezone. |
-| `ANTHROPIC_API_KEY` | Unset | Optional AI recipe import, tag suggestions and shopping lists. |
+| `ANTHROPIC_API_KEY` | Unset | Optional AI recipe import, tag suggestions, ingredient-based nutrition, explicit recipe generation and shopping lists. |
 | `LLM_MODEL` | `claude-sonnet-5-5` | Claude model used for AI features; overrides must support structured outputs. |
 | `WEATHER_API_KEY` | Unset | Optional WeatherAPI.com access; weather still needs enabling in Settings. |
 | `DATA_DIR` | `/data` | SQLite `app.db` and uploaded/downloaded `media/`. |

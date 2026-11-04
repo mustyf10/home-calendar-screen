@@ -1,0 +1,39 @@
+{# The Generate recipe action / draft status on the recipe page. Expects: dish, generation (generation.detail_context).
+   Polls only while queued or running; the status endpoint then reloads the page. #}
+{% from "_icons.html" import icon %}
+{% if generation.visible %}
+{% if generation.active %}
+<div id="generation-status" class="flash banner" role="status" hx-get="/dishes/{{ dish.id }}/generate/status" hx-trigger="every 2s" hx-swap="outerHTML">
+  <p aria-busy="true"><strong>{{ "Generating a recipe…" if generation.status == "running" else "Recipe generation is queued…" }}</strong></p>
+  <small>This is an AI-written draft. Nothing is saved to the recipe until you approve it.</small>
+</div>
+{% elif generation.status == "ready" %}
+<div id="generation-status" class="flash banner" role="region" aria-labelledby="generation-h">
+  <p id="generation-h"><strong>An AI-generated recipe draft is ready</strong></p>
+  <p>It hasn't changed this recipe. Review and edit it, then approve or discard it.</p>
+  <a href="/dishes/{{ dish.id }}/generate" role="button">Review draft</a>
+</div>
+{% elif generation.status == "failed" %}
+<div id="generation-status" class="warn banner" role="region" aria-labelledby="generation-h">
+  <p id="generation-h"><strong>Couldn't generate a recipe</strong></p>
+  <p>{{ generation.error }}</p>
+  <form method="post" action="/dishes/{{ dish.id }}/generate">
+  <input type="hidden" name="attempt" value="{{ generation.attempt }}">
+    <div class="row-actions">
+      {% if generation.can_generate %}<button type="submit" {% if not generation.configured %}disabled{% endif %}>{{ icon("refresh") }}Try again</button>{% endif %}
+      <button type="submit" class="secondary outline" formaction="/dishes/{{ dish.id }}/generate/discard">Dismiss</button>
+    </div>
+  </form>
+</div>
+{% else %}
+<div id="generation-status" class="card-box">
+  <p class="muted">No ingredients yet. Nutrition needs saved ingredients.</p>
+  <form method="post" action="/dishes/{{ dish.id }}/generate">
+  <input type="hidden" name="attempt" value="{{ generation.attempt }}">
+    <button type="submit" class="secondary" {% if not generation.configured %}disabled{% endif %}>Generate recipe</button>
+  </form>
+  <small>Writes an AI draft from the title{% if dish.description %} and description{% endif %} for you to review. Nothing is saved until you approve it.</small>
+  {% if not generation.configured %}<small class="error">{{ generation.no_key }}</small>{% endif %}
+</div>
+{% endif %}
+{% endif %}

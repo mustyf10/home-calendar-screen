@@ -48,6 +48,9 @@
   {% if dish.total_minutes %}<li>{{ icon("clock") }}{{ dish.total_minutes }} min</li>{% endif %}
 </ul>
 
+{% include "dishes/_nutrition.html" %}
+{% include "dishes/_generation.html" %}
+
 <div class="recipe">
   <div class="recipe-side">
     <figure class="recipe-photo">
