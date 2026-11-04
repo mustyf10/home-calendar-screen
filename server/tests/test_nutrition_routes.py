@@ -85,6 +85,17 @@ def test_estimated_servings_and_assumptions_are_disclosed(client, make_dish):
     assert "oats: assumed &lt;b&gt;100g&lt;/b&gt;" in html and "<b>100g</b>" not in html
 
 
+def test_entered_servings_replace_the_estimated_basis(client, make_dish, session):
+    dish = make_dish(ingredients=INGREDIENTS, nutrition=ready(estimated_servings=2, rough=True))
+    assert "1000 kcal" in fragment(client, dish)
+    dish.servings = 4
+    session.commit()
+    html = fragment(client, dish)
+    assert "500 kcal" in html
+    assert "Rough estimate" not in html
+    assert "(estimated" not in html
+
+
 @pytest.mark.parametrize("stored, text", [
     ({"status": "failed", "fingerprint": nutrition.fingerprint(INGREDIENTS), "error": "Couldn't estimate nutrition. Try later."},
      "Couldn&#39;t estimate nutrition. Try later."),

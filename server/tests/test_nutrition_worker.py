@@ -130,6 +130,18 @@ def test_missing_servings_are_estimated_and_disclosed(Session, claude):
     assert "not given" in claude.calls[0]["text"]
 
 
+@pytest.mark.parametrize("servings", [0, -1])
+def test_invalid_saved_servings_are_estimated_once_not_repeated(Session, claude, servings):
+    claude.answer = dict(ANSWER, estimated_servings=2)
+    dish_id = make(Session, servings=servings)
+    nutrition.run(dish_id)
+    assert nutrition.detail_context(load(Session, dish_id))["servings"] == 2
+    assert shown(load(Session, dish_id))["calories"] == "1000"
+    assert next_id(Session) is None
+    nutrition.run(dish_id)
+    assert len(claude.calls) == 1
+
+
 def test_assumed_quantities_are_shown_and_make_it_rough(Session, claude):
     claude.answer = dict(ANSWER, assumptions=["milk: assumed 500ml", "salt: assumed a pinch"])
     dish_id = make(Session, ingredients=["oats", "milk", "salt"])

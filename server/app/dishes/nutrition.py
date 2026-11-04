@@ -155,6 +155,10 @@ def estimate_nutrition(ingredients: list[str], servings: int | None) -> dict:
     """One Claude call from the ingredient list alone. Raises on a missing key, API error or unusable answer."""
     if not config.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
+    # Legacy/manual recipes can contain zero or negative counts. Treat them as
+    # missing consistently for both the prompt and response validation.
+    if not isinstance(servings, int) or isinstance(servings, bool) or servings <= 0:
+        servings = None
     items = _ingredients(ingredients)
     text = "INGREDIENTS:\n" + "\n".join(items) + "\n\nSERVINGS: " + (
         str(servings) if servings else "not given - estimate how many the ingredients make")
@@ -216,7 +220,6 @@ def run(dish_id: int) -> None:
             "status": "ready",
             "fingerprint": fp,
             **result,
-            "rough": bool(result["assumptions"]) or result["estimated_servings"] is not None,
             "estimated_at": stamp,
         }
     _store(dish_id, fp, stored)
@@ -268,7 +271,7 @@ def detail_context(dish: Dish) -> dict:
         ctx.update(
             rows=[{"key": key, "label": label, "unit": unit, "text": _text(values[key], unit)}
                   for key, _, label, unit in NUTRIENTS],
-            outdated=outdated, rough=bool(nut.get("rough")), servings=basis[0], servings_estimated=basis[1],
+            outdated=outdated, rough=bool(nut.get("assumptions")) or basis[1], servings=basis[0], servings_estimated=basis[1],
             assumptions=list(nut.get("assumptions") or []),
         )
 

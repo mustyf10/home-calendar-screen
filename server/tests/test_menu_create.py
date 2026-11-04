@@ -73,6 +73,18 @@ def test_case_and_whitespace_equivalent_title_suppresses_create(client, make_dis
     assert create_forms(pick(client, typed)) == []
 
 
+@pytest.mark.parametrize("title,typed", [
+    ("Crème brûlée", "CRÈME BRÛLÉE"),
+    ("Straße soup", "STRASSE SOUP"),
+])
+def test_unicode_exact_match_remains_selectable(client, make_dish, title, typed):
+    dish = make_dish(title)
+    html = pick(client, typed)
+    assert create_forms(html) == []
+    assert f'"dish_id": "{dish.id}"' in html
+    assert title in html
+
+
 def test_punctuation_difference_alone_is_not_a_duplicate(client, make_dish):
     make_dish("Mac & Cheese")
 

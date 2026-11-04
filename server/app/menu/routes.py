@@ -134,9 +134,12 @@ def clear(request: Request, d: date, session: Session = Depends(get_session)):
 
 def _pick_row(request: Request, session: Session, d: date, q: str, **extra):
     found = search_dishes(session, q)
-    found.sort(key=lambda x: x.type != "dinner")  # stable: dinners first, search order kept
     title = q.strip()
     exact = exact_title_dish(session, title)
+    # SQLite LIKE folds ASCII only; Python exact matching also handles Unicode.
+    if exact is not None and not exact.archived and all(dish.id != exact.id for dish in found):
+        found.append(exact)
+    found.sort(key=lambda x: x.type != "dinner")  # stable: dinners first, search order kept
     return _row(
         request, session, d,
         state="pick", q=q, results=found, blocked=blocked_dish_ids(session, d),
