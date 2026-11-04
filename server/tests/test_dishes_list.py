@@ -42,3 +42,15 @@ def test_all_is_current_without_a_type(client):
     links = category_links(client.get("/dishes").text)
     assert [current for _, current in links] == [True] + [False] * len(DISH_TYPES)
     assert all(query == {} or set(query) == {"type"} for query, _ in links)
+
+
+def test_breakfast_filter_excludes_dinners(client, make_dish):
+    breakfast = make_dish("Oat pancakes", type="breakfast")
+    dinner = make_dish("Lentil curry", type="dinner")
+    response = client.get("/dishes", params={"type": "breakfast"})
+    assert response.status_code == 200
+    assert f'href="/dishes/{breakfast.id}"' in response.text
+    assert f'href="/dishes/{dinner.id}"' not in response.text
+    assert [current for _, current in category_links(response.text)] == [
+        False, True, *([False] * (len(DISH_TYPES) - 1))
+    ]

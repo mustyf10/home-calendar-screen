@@ -4,12 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app import clock
+from app.config import config
 from app.db import get_session
-from app.dishes.forms import DishInput, apply, core_tag_warning, similar_dishes, validate
+from app.dishes import generation, nutrition
+from app.dishes.forms import (
+    DishInput, apply, core_tag_warning, duplicate_url_dish, existing_dish, lock_writes, similar_dishes, validate,
+)
 from app.dishes.search import search_dishes
 from app.ingest import images, uploads
 from app.ingest.jobs import ACTIVE, STATUS_TEXT, fills_from_source, latest_dish_jobs, placeholder_title, review_banners
@@ -128,10 +133,19 @@ async def _validated_input(form, session: Session, dish_id: int | None = None,
     return inp, errors, image_path
 
 
+def _open_saved(dish: Dish) -> RedirectResponse:
+    return RedirectResponse(f"/dishes/{dish.id}", status_code=303)
+
+
 @router.post("/dishes")
 async def create_dish(request: Request, session: Session = Depends(get_session)):
-    """Saves at once and queues one background job; this request never fetches or calls Claude."""
+    """Saves at once and queues one background job; this request never fetches or calls Claude.
+
+    A link or title that is already saved opens that recipe instead, before any upload is read."""
     form = await request.form()
+    found = existing_dish(session, DishInput.from_form(form))
+    if found:
+        return _open_saved(found)
     text = (form.get("text") or "").strip()
     shots = uploads.files(form)
     screenshots, shots_error = await uploads.read_images(shots)
@@ -139,22 +153,40 @@ async def create_dish(request: Request, session: Session = Depends(get_session))
     inp, errors, image_path = await _validated_input(
         form, session, require_title=not has_source, errors={"images": shots_error} if shots_error else None
     )
+    if errors.get("duplicate"):  # saved by someone else since the first check
+        return _open_saved(errors["duplicate"])
     if errors:
         return _add_page(request, session, inp, text, errors, 422)
-    inp.title = inp.title or placeholder_title(inp.source_url, bool(screenshots))
-    dish = Dish(source_platform="manual", image_path=image_path)
-    apply(session, dish, inp)
-    job = IngestJob(
-        dish_id=dish.id,
-        source_url=inp.source_url or None,
-        user_text=text,
-        platform=platform_for(inp.source_url) if inp.source_url else "upload",
-        status="queued",
-    )
-    session.add(job)
-    session.flush()
-    job.upload_paths = uploads.save_uploads(job, screenshots)
-    session.commit()
+    written: list[str] = []
+    try:
+        lock_writes(session)  # recheck under SQLite's write lock: equivalent submissions queue up behind it
+        found = existing_dish(session, inp)
+        if not found:
+            inp.title = inp.title or placeholder_title(inp.source_url, bool(screenshots))
+            dish = Dish(source_platform="manual", image_path=image_path)
+            apply(session, dish, inp)
+            job = IngestJob(
+                dish_id=dish.id,
+                source_url=inp.source_url or None,
+                user_text=text,
+                platform=platform_for(inp.source_url) if inp.source_url else "upload",
+                status="queued",
+            )
+            session.add(job)
+            session.flush()
+            written = uploads.save_uploads(job, screenshots)
+            job.upload_paths = written
+            session.commit()
+    except IntegrityError:  # the unique source URL lost a race: open the winner
+        session.rollback()
+        found = duplicate_url_dish(session, inp.source_url)
+        if not found:
+            raise
+    if found:
+        session.rollback()
+        for rel in ([image_path] if image_path else []) + written:  # only files this request wrote
+            (config.media_dir / rel).unlink(missing_ok=True)
+        return _open_saved(found)
     return RedirectResponse(f"/dishes/{dish.id}?created=1", status_code=303)
 
 
@@ -175,6 +207,8 @@ def _detail_ctx(session: Session, dish: Dish, created: bool = False, **extra) ->
         "duplicate": session.get(Dish, duplicate_id) if duplicate_id else None,
         "can_fill": bool(dish.source_url and not dish.ingredients and not dish.steps and not active and not failed),
         "status_text": STATUS_TEXT,
+        "nutrition": nutrition.detail_context(dish),
+        "generation": generation.detail_context(dish),
         **extra,
     }
 

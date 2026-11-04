@@ -1,0 +1,33 @@
+{# Per-serving nutrition from the saved ingredients. Needs `dish` and `nutrition` (nutrition.detail_context(dish)). Polls only while an estimate is expected. #}
+<section id="nutrition" class="card-box" aria-labelledby="nutrition-h"{% if nutrition.polling %} hx-get="/dishes/{{ dish.id }}/nutrition/status" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <h2 id="nutrition-h">Nutrition per serving</h2>
+  {% if nutrition.rows %}
+  {% if nutrition.outdated %}<p class="warn">{% if nutrition.state == "outdated" %}Ingredients changed. These values are from the old ingredients and are being updated.{% else %}These values are outdated: they don't match the current ingredients.{% endif %}</p>{% endif %}
+  <table>
+    <tbody>
+      {% for row in nutrition.rows %}<tr><th scope="row">{{ row.label }}</th><td>{{ row.text }} {{ row.unit }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">
+    Based on {{ nutrition.servings }} serving{{ "" if nutrition.servings == 1 else "s" }}{% if nutrition.servings_estimated %} (estimated, because this recipe has no serving count){% endif %}.
+    {% if nutrition.rough %}Rough estimate.{% else %}Estimate from the listed ingredients.{% endif %}
+  </p>
+  {% if nutrition.assumptions %}
+  <details>
+    <summary>Quantities assumed</summary>
+    <ul>{% for a in nutrition.assumptions %}<li>{{ a }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endif %}
+
+  {% if nutrition.state == "pending" %}
+  <p aria-busy="true" role="status">Estimating nutrition…</p>
+  {% elif nutrition.state == "error" %}
+  <p class="warn" role="alert">{{ nutrition.error }}</p>
+  <form method="post" action="/dishes/{{ dish.id }}/nutrition"><button type="submit" class="secondary">Try again</button></form>
+  {% elif nutrition.state in ("unavailable", "archived") %}
+  <p class="muted">{{ nutrition.message }}</p>
+  {% elif nutrition.state == "missing_ingredients" %}
+  <p class="muted">{{ nutrition.message }}. <a href="/dishes/{{ dish.id }}/edit">Add ingredients</a></p>
+  {% endif %}
+</section>

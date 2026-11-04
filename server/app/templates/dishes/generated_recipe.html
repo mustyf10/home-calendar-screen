@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_ui.html" import page_head %}
+{% block title %}Generated recipe · {{ dish.title }} · Kitchen{% endblock %}
+{% block content %}
+{% call page_head("Generated recipe for " ~ dish.title) %}
+  <a href="/dishes/{{ dish.id }}" role="button" class="secondary outline">Back to recipe</a>
+{% endcall %}
+
+{% if generation.status is none %}
+<p class="muted">No recipe has been generated for this one.</p>
+{% include "dishes/_generation.html" %}
+
+{% elif generation.active %}
+{% include "dishes/_generation.html" %}
+<form method="post" action="/dishes/{{ dish.id }}/generate/discard">
+  <input type="hidden" name="attempt" value="{{ generation.attempt }}">
+  <button type="submit" class="secondary outline">Cancel</button>
+</form>
+
+{% elif generation.status == "failed" %}
+{% include "dishes/_generation.html" %}
+
+{% else %}
+<p class="warn" role="note"><strong>AI-generated draft.</strong> Claude invented this from the title{% if dish.description %} and description{% endif %}. It isn't from a source, so check it before cooking. The saved recipe stays as it is until you approve.</p>
+{% if generation.conflict or generation.stale %}
+<p class="warn" role="alert">{{ generation.stale_message }}</p>
+{% endif %}
+{% if generation.errors and (generation.errors.draft or generation.errors.outdated) %}<p class="error" role="alert">{{ generation.errors.draft or generation.errors.outdated }}</p>{% endif %}
+<form method="post" action="/dishes/{{ dish.id }}/generate/approve">
+  <input type="hidden" name="attempt" value="{{ generation.attempt }}">
+  <div class="grid">
+    <label>Ingredients <small>(one per line)</small>
+      <textarea name="ingredients_text" rows="10" {% if generation.errors and generation.errors.ingredients %}aria-invalid="true"{% endif %}>{{ generation.ingredients_text }}</textarea>
+      {% if generation.errors and generation.errors.ingredients %}<small class="error">{{ generation.errors.ingredients }}</small>{% endif %}
+    </label>
+    <label>Steps <small>(one per line)</small>
+      <textarea name="steps_text" rows="10">{{ generation.steps_text }}</textarea>
+    </label>
+  </div>
+  <label>Servings
+    <input name="servings" value="{{ generation.servings }}" inputmode="numeric" {% if generation.errors and generation.errors.servings %}aria-invalid="true"{% endif %}>
+    {% if generation.errors and generation.errors.servings %}<small class="error">{{ generation.errors.servings }}</small>{% endif %}
+  </label>
+  <div class="row-actions">
+    <button type="submit" {% if generation.stale or generation.conflict %}disabled{% endif %}>Approve and save</button>
+    <button type="submit" class="secondary outline" formaction="/dishes/{{ dish.id }}/generate/discard" formnovalidate>Discard draft</button>
+  </div>
+  <small>Approving saves only the ingredients, steps and servings. Discarding changes nothing.</small>
+</form>
+{% endif %}
+{% endblock %}

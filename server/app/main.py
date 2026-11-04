@@ -17,6 +17,7 @@ from app.bins.service import run_bins_loop
 from app.calendars import routes as calendar_routes
 from app.calendars.sync import run_sync_loop
 from app.config import config
+from app.dishes import generation, nutrition
 from app.dishes import routes as dish_routes
 from app.display import preview_routes
 from app.display import routes as display_routes
@@ -53,6 +54,8 @@ app.mount("/media", StaticFiles(directory=config.media_dir), name="media")
 
 for module in (
     dish_routes,
+    generation,
+    nutrition,
     tag_routes,
     menu_routes,
     shopping_routes,

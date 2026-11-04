@@ -66,7 +66,7 @@ class DishInput:
     def from_extracted(cls, ex: dict, source_url: str = "") -> "DishInput":
         return cls(
             title=ex.get("title") or "",
-            type=ex.get("type") if ex.get("type") in DISH_TYPES else "dinner",
+            type=str(ex["type"]) if ex.get("type") in DISH_TYPES else "dinner",
             tags_text=" ".join(f"#{t}" for t in ex.get("tags") or []),
             description=ex.get("description") or "",
             ingredients_text="\n".join(ex.get("ingredients") or []),
@@ -94,6 +94,40 @@ def duplicate_url_dish(session: Session, url: str, exclude_id: int | None = None
     if exclude_id:
         q = q.where(Dish.id != exclude_id)
     return session.scalar(q)
+
+
+def title_key(title: str) -> str:
+    """Exact-duplicate key: case and whitespace are ignored, punctuation and non-English letters are kept."""
+    return " ".join((title or "").casefold().split())
+
+
+def exact_title_dish(session: Session, title: str) -> Dish | None:
+    """The saved recipe (archived included) whose title equals `title`: active first, then lowest id."""
+    key = title_key(title)
+    if not key:
+        return None
+    rows = session.execute(select(Dish.id, Dish.title).order_by(Dish.archived, Dish.id))
+    return next((session.get(Dish, i) for i, t in rows if title_key(t) == key), None)
+
+
+def existing_dish(session: Session, inp: "DishInput") -> Dish | None:
+    """A saved recipe the submitted link or entered title already names; the link wins a conflict."""
+    url = inp.source_url
+    if urlsplit(url).scheme.lower() in ("http", "https"):
+        try:
+            found = duplicate_url_dish(session, url)
+        except ValueError:  # unparseable port: validate() reports the bad link
+            found = None
+        if found:
+            return found
+    return exact_title_dish(session, inp.title)
+
+
+def lock_writes(session: Session) -> None:
+    """Takes SQLite's write lock now, so a recheck made after this cannot be overtaken by another writer."""
+    raw = session.connection().connection.driver_connection
+    if not raw.in_transaction:
+        raw.execute("BEGIN IMMEDIATE")
 
 
 def validate(session: Session, inp: DishInput, dish_id: int | None = None, require_title: bool = True) -> dict:

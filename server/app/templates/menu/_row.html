@@ -20,6 +20,7 @@
   </div>
   {% if r.warning %}<p class="warn">{{ r.warning }}</p>{% endif %}
   {% if r.message %}<p class="warn">{{ r.message }}</p>{% endif %}
+  {% if r.created_dish %}<p class="muted">Saved as a new Dinner. <a href="/dishes/{{ r.created_dish.id }}/edit" target="_blank">Add ingredients</a></p>{% endif %}
 
   {% if r.state == "suggest" %}
   {% set s = r.suggestion %}
@@ -57,6 +58,19 @@
     {% else %}
     <li class="muted">No recipes found.</li>
     {% endfor %}
+    {% if r.archived_match %}
+    <li class="muted">
+      <a href="/dishes/{{ r.archived_match.id }}" target="_blank">{{ r.archived_match.title }}</a>
+      is archived — open it to restore it.
+    </li>
+    {% elif r.create_title %}
+    <li>
+      <form hx-post="/menu/{{ iso }}/create" hx-target="#{{ row_id }}" hx-swap="outerHTML">
+        <input type="hidden" name="title" value="{{ r.create_title }}">
+        <button type="submit" class="secondary">{{ icon("plus") }}Create “{{ r.create_title }}”</button>
+      </form>
+    </li>
+    {% endif %}
   </ul>
   <div class="row-actions">
     <button type="button" class="secondary outline" hx-get="/menu/{{ iso }}/row"

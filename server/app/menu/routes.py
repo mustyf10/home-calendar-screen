@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from app import clock
 from app.db import get_session
+from app.dishes.forms import DishInput, apply, exact_title_dish, lock_writes
 from app.dishes.search import search_dishes
 from app.menu import entries
 from app.menu.dice import blocked_dish_ids, conflicts, matching_dinners, roll
-from app.models import Dish
+from app.models import Dish, IngestJob
 from app.tags.service import CORE_TAGS, dinner_tag_names, parse_tag_input, resolve_names
 from app.web import render
 
@@ -131,11 +132,47 @@ def clear(request: Request, d: date, session: Session = Depends(get_session)):
     return _row(request, session, d)
 
 
-@router.get("/menu/{d}/pick")
-def pick(request: Request, d: date, q: str = "", session: Session = Depends(get_session)):
+def _pick_row(request: Request, session: Session, d: date, q: str, **extra):
     found = search_dishes(session, q)
+    title = q.strip()
+    exact = exact_title_dish(session, title)
+    # SQLite LIKE folds ASCII only; Python exact matching also handles Unicode.
+    if exact is not None and not exact.archived and all(dish.id != exact.id for dish in found):
+        found.append(exact)
     found.sort(key=lambda x: x.type != "dinner")  # stable: dinners first, search order kept
     return _row(
         request, session, d,
         state="pick", q=q, results=found, blocked=blocked_dish_ids(session, d),
+        create_title=title if title and exact is None else "",
+        archived_match=exact if exact is not None and exact.archived else None,
+        **extra,
     )
+
+
+@router.get("/menu/{d}/pick")
+def pick(request: Request, d: date, q: str = "", session: Session = Depends(get_session)):
+    return _pick_row(request, session, d, q)
+
+
+@router.post("/menu/{d}/create")
+async def create_and_choose(request: Request, d: date, session: Session = Depends(get_session)):
+    """Creates a Dinner from the picker and puts it on the day; an existing title is only assigned."""
+    form = await request.form()
+    title = (form.get("title") or "").strip()
+    if not title:
+        return _pick_row(request, session, d, "", message="Type a recipe title first.")
+    lock_writes(session)  # recheck under SQLite's write lock so two submissions can't both create
+    match = exact_title_dish(session, title)
+    if match is not None and match.archived:
+        session.rollback()
+        return _pick_row(request, session, d, title)
+    created = None
+    if match is None:
+        match = created = Dish(source_platform="manual")
+        apply(session, match, DishInput(title=title))
+        session.add(IngestJob(dish_id=match.id, platform="upload", status="queued"))  # title-only tag enrichment
+    entries.set_dish(session, d, match.id, commit=False)
+    session.commit()
+    clash = None if created else conflicts(session, match.id, d)
+    warning = f"Also on the menu on {', '.join(clock.fmt_day(c) for c in clash)} (within 21 days)" if clash else None
+    return _row(request, session, d, warning=warning, created_dish=created)

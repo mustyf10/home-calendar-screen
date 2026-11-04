@@ -16,8 +16,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-DISH_TYPES = ("dinner", "snack", "dessert", "baking", "side")
+DISH_TYPES = ("breakfast", "dinner", "snack", "dessert", "baking", "side")
 TYPE_LABELS = {
+    "breakfast": "Breakfast",
     "dinner": "Dinner",
     "snack": "Snack/savoury",
     "dessert": "Dessert",
@@ -70,6 +71,8 @@ class Dish(Base):
     steps: Mapped[list] = mapped_column(JSON, default=list)
     servings: Mapped[int | None] = mapped_column(Integer)
     total_minutes: Mapped[int | None] = mapped_column(Integer)
+    nutrition: Mapped[dict | None] = mapped_column(JSON)
+    generated_recipe: Mapped[dict | None] = mapped_column(JSON)
     source_url: Mapped[str | None] = mapped_column(Text, unique=True)
     source_platform: Mapped[str] = mapped_column(String, default="manual")
     image_path: Mapped[str | None] = mapped_column(Text)
